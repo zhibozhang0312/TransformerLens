@@ -3,12 +3,14 @@
 This module contains functions for loading pretrained models from the Hugging Face Hub.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict
 
 import torch
 from huggingface_hub import HfApi
@@ -61,7 +63,7 @@ NEED_REMOTE_CODE_MODELS = (
 )
 
 
-def make_model_alias_map():
+def make_model_alias_map() -> dict[str, str]:
     """
     Converts OFFICIAL_MODEL_NAMES (the list of actual model names on
     HuggingFace) and MODEL_ALIASES (a dictionary mapping official model names to
@@ -76,12 +78,12 @@ def make_model_alias_map():
     return model_alias_map
 
 
-def get_official_model_name(model_name: str):
+def get_official_model_name(model_name: str) -> str:
     """
     Returns the official model name for a given model name (or alias).
     """
     model_alias_map = make_model_alias_map()
-    official_model_name = model_alias_map.get(model_name.lower(), None)
+    official_model_name = model_alias_map.get(model_name.lower())
     if official_model_name is None:
         raise ValueError(
             f"{model_name} not found. Valid official model names (excl aliases): {OFFICIAL_MODEL_NAMES}"
@@ -89,7 +91,7 @@ def get_official_model_name(model_name: str):
     return official_model_name
 
 
-def convert_hf_model_config(model_name: str, **kwargs):
+def convert_hf_model_config(model_name: str, **kwargs: Any) -> dict[str, Any]:
     """
     Returns the model config for a HuggingFace model, converted to a dictionary
     in the HookedTransformerConfig format.
@@ -119,11 +121,10 @@ def convert_hf_model_config(model_name: str, **kwargs):
         )
         architecture = hf_config.architectures[0]
 
-    cfg_dict: Dict[str, Any] = {}
     if official_model_name.startswith(
         ("llama-7b", "meta-llama/Llama-2-7b")
     ):  # same architecture for LLaMA and Llama-2
-        cfg_dict = {
+        cfg_dict: Dict[str, Any] = {
             "d_model": 4096,
             "d_head": 4096 // 32,
             "n_heads": 32,
@@ -869,7 +870,7 @@ def convert_hf_model_config(model_name: str, **kwargs):
     return cfg_dict
 
 
-def convert_neel_model_config(official_model_name: str, **kwargs):
+def convert_neel_model_config(official_model_name: str, **kwargs: Any) -> dict[str, Any]:
     """
     Loads the config for a model trained by me (NeelNanda), converted to a dictionary
     in the HookedTransformerConfig format.
@@ -910,17 +911,17 @@ def convert_neel_model_config(official_model_name: str, **kwargs):
 
 def get_pretrained_model_config(
     model_name: str,
-    hf_cfg: Optional[dict] = None,
-    checkpoint_index: Optional[int] = None,
-    checkpoint_value: Optional[int] = None,
+    hf_cfg: dict[str, Any] | None = None,
+    checkpoint_index: int | None = None,
+    checkpoint_value: int | None = None,
     fold_ln: bool = False,
-    device: Optional[Union[str, torch.device]] = None,
+    device: str | torch.device | None = None,
     n_devices: int = 1,
-    default_prepend_bos: Optional[bool] = None,
+    default_prepend_bos: bool | None = None,
     dtype: torch.dtype = torch.float32,
-    first_n_layers: Optional[int] = None,
-    **kwargs,
-):
+    first_n_layers: int | None = None,
+    **kwargs: Any,
+) -> HookedTransformerConfig:
     """Returns the pretrained model config as an HookedTransformerConfig object.
 
     There are two types of pretrained models: HuggingFace models (where
@@ -1050,11 +1051,13 @@ def get_pretrained_model_config(
     return cfg
 
 
-def get_num_params_of_pretrained(model_name):
+def get_num_params_of_pretrained(model_name: str) -> int:
     """
     Returns the number of parameters of a pretrained model, used to filter to only run code for sufficiently small models.
     """
     cfg = get_pretrained_model_config(model_name)
+    if cfg.n_params is None:
+        raise ValueError(f"n_params not calculated for model {model_name}")
     return cfg.n_params
 
 
@@ -1076,7 +1079,7 @@ PYTHIA_CHECKPOINTS = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512] + list(
 PYTHIA_V0_CHECKPOINTS = list(range(1000, 143000 + 1, 1000))
 
 
-def get_checkpoint_labels(model_name: str, **kwargs):
+def get_checkpoint_labels(model_name: str, **kwargs: Any) -> tuple[list[int], str]:
     """Returns the checkpoint labels for a given model, and the label_type
     (step or token). Raises an error for models that are not checkpointed."""
     official_model_name = get_official_model_name(model_name)
@@ -1114,10 +1117,10 @@ def get_checkpoint_labels(model_name: str, **kwargs):
 def get_pretrained_state_dict(
     official_model_name: str,
     cfg: HookedTransformerConfig,
-    hf_model=None,
+    hf_model: Any | None = None,
     dtype: torch.dtype = torch.float32,
-    **kwargs,
-) -> Dict[str, torch.Tensor]:
+    **kwargs: Any,
+) -> dict[str, torch.Tensor]:
     """
     Loads in the model weights for a pretrained model, and processes them to
     have the HookedTransformer parameter names and shapes. Supports checkpointed
@@ -1266,13 +1269,14 @@ def get_pretrained_state_dict(
         return state_dict
 
 
-def fill_missing_keys(model, state_dict):
+def fill_missing_keys(model: Any, state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """Takes in a state dict from a pretrained model, and fills in any missing keys with the default initialization.
 
     This function is assumed to be run before weights are initialized.
 
     Args:
-        state_dict (dict): State dict from a pretrained model
+        model: The model to fill missing keys for
+        state_dict: State dict from a pretrained model
 
     Returns:
         dict: State dict with missing keys filled in
@@ -1311,7 +1315,8 @@ class Config:
 
 
 # Returns the configuration parameters of the model as a basic Config dataclass
-def get_basic_config(model_name: str, **kwargs) -> Config:
+def get_basic_config(model_name: str, **kwargs: Any) -> Config:
+    """Returns the configuration parameters of the model as a basic Config dataclass."""
     return Config(
         **{
             k: v
