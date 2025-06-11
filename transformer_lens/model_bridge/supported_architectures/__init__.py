@@ -9,6 +9,9 @@ from transformer_lens.model_bridge.supported_architectures.bert import (
 from transformer_lens.model_bridge.supported_architectures.bloom import (
     BloomArchitectureAdapter,
 )
+from transformer_lens.model_bridge.supported_architectures.deepseek import (
+    DeepseekArchitectureAdapter,
+)
 from transformer_lens.model_bridge.supported_architectures.gemma1 import (
     Gemma1ArchitectureAdapter,
 )
@@ -76,6 +79,7 @@ from transformer_lens.model_bridge.supported_architectures.t5 import (
 __all__ = [
     "BertArchitectureAdapter",
     "BloomArchitectureAdapter",
+    "DeepseekArchitectureAdapter",
     "Gemma1ArchitectureAdapter",
     "Gemma2ArchitectureAdapter",
     "Gemma3ArchitectureAdapter",
