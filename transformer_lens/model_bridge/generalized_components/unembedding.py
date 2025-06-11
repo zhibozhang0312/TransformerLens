@@ -71,21 +71,3 @@ class UnembeddingBridge(GeneralizedComponent):
         self.hook_outputs.update({"output": output})
 
         return output
-
-    @classmethod
-    def wrap_component(
-        cls, component: nn.Module, name: str, architecture_adapter: Any | None = None
-    ) -> nn.Module:
-        """Wrap a component with this bridge if it's an unembedding layer.
-
-        Args:
-            component: The component to wrap
-            name: The name of the component
-            architecture_adapter: The architecture adapter instance
-
-        Returns:
-            The wrapped component if it's an unembedding layer, otherwise the original component
-        """
-        if name.endswith(".unembed") or name.endswith(".lm_head"):
-            return cls(component, name, architecture_adapter)
-        return component

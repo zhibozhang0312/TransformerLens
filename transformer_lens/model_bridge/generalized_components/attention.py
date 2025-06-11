@@ -38,8 +38,8 @@ class AttentionBridge(GeneralizedComponent):
         # Add all the hooks from the old attention components
         self.hook_k = HookPoint()  # [batch, pos, head_index, d_head]
         self.hook_q = HookPoint()  # [batch, pos, head_index, d_head]
-        self.hook_v = HookPoint()  # [batch, pos, head_index, d_head]
-        self.hook_z = HookPoint()  # [batch, pos, head_index, d_head]
+        self.hook_v = HookPoint()  # Value vectors
+        self.hook_z = HookPoint()  # Attention output
         self.hook_attn_scores = HookPoint()  # [batch, head_index, query_pos, key_pos]
         self.hook_pattern = HookPoint()  # [batch, head_index, query_pos, key_pos]
         self.hook_result = HookPoint()  # [batch, pos, head_index, d_model]
@@ -50,31 +50,13 @@ class AttentionBridge(GeneralizedComponent):
         self.hook_rot_q = HookPoint()  # [batch, pos, head_index, d_head] (for rotary)
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
-        """Forward pass through the attention layer.
-
-        This method forwards all arguments to the original component and applies hooks
-        to the output. The arguments should match the original component's forward method.
+        """Forward pass through the attention bridge.
 
         Args:
-            *args: Input arguments to pass to the original component
-            **kwargs: Input keyword arguments to pass to the original component
+            *args: Positional arguments for the original component
+            **kwargs: Keyword arguments for the original component
 
         Returns:
-            The output from the original component, with hooks applied
+            Output from the original component
         """
-        # Handle hook_attn_input for shortformer positional embeddings
-        if "query_input" in kwargs:
-            # Combine normalized residual stream with positional embeddings
-            attn_input = kwargs["query_input"]
-            # Pass through hook_attn_input
-            attn_input = self.hook_attn_input(attn_input)
-            # Update query_input with the hooked value
-            kwargs["query_input"] = attn_input
-
-        # Forward through the original component
-        output = self.original_component(*args, **kwargs)
-
-        # Execute hooks on the output (for add_hook compatibility)
-        output = self.execute_hooks("output", output)
-
-        return output
+        return self.original_component(*args, **kwargs)
