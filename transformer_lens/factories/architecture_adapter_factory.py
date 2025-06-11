@@ -9,6 +9,7 @@ from transformer_lens.model_bridge.architecture_adapter import ArchitectureAdapt
 from transformer_lens.model_bridge.supported_architectures import (
     BertArchitectureAdapter,
     BloomArchitectureAdapter,
+    DeepseekArchitectureAdapter,
     Gemma1ArchitectureAdapter,
     Gemma2ArchitectureAdapter,
     Gemma3ArchitectureAdapter,
@@ -35,6 +36,7 @@ from transformer_lens.model_bridge.supported_architectures import (
 SUPPORTED_ARCHITECTURES = {
     "BertForMaskedLM": BertArchitectureAdapter,
     "BloomForCausalLM": BloomArchitectureAdapter,
+    "DeepseekV3ForCausalLM": DeepseekArchitectureAdapter,
     "GemmaForCausalLM": Gemma1ArchitectureAdapter,  # Default to Gemma1 as it's the original version
     "Gemma1ForCausalLM": Gemma1ArchitectureAdapter,
     "Gemma2ForCausalLM": Gemma2ArchitectureAdapter,
