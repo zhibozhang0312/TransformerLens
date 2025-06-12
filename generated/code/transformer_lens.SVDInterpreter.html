@@ -226,6 +226,7 @@
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.phi3.html">transformer_lens.pretrained.weight_conversions.phi3</a></li>
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.qwen.html">transformer_lens.pretrained.weight_conversions.qwen</a></li>
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.qwen2.html">transformer_lens.pretrained.weight_conversions.qwen2</a></li>
+<li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.qwen3.html">transformer_lens.pretrained.weight_conversions.qwen3</a></li>
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.t5.html">transformer_lens.pretrained.weight_conversions.t5</a></li>
 </ul>
 </li>
@@ -318,7 +319,7 @@ means inconsistency across devices, and the default HookedTransformer parameters
 replicate the original SVD post very well. So I’d recommend checking out the demo if you
 want to use this!</p>
 <p>Example:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">transformer_lens</span> <span class="kn">import</span> <span class="n">HookedTransformer</span><span class="p">,</span> <span class="n">SVDInterpreter</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformer_lens</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookedTransformer</span><span class="p">,</span> <span class="n">SVDInterpreter</span>
 
 <span class="n">model</span> <span class="o">=</span> <span class="n">HookedTransformer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s1">&#39;gpt2-medium&#39;</span><span class="p">)</span>
 <span class="n">svd_interpreter</span> <span class="o">=</span> <span class="n">SVDInterpreter</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
@@ -328,7 +329,7 @@ want to use this!</p>
 <span class="n">all_tokens</span> <span class="o">=</span> <span class="p">[</span><span class="n">model</span><span class="o">.</span><span class="n">to_str_tokens</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">i</span><span class="p">]))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">cfg</span><span class="o">.</span><span class="n">d_vocab</span><span class="p">)]</span>
 <span class="n">all_tokens</span> <span class="o">=</span> <span class="p">[</span><span class="n">all_tokens</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">cfg</span><span class="o">.</span><span class="n">d_vocab</span><span class="p">)]</span>
 
-<span class="k">def</span> <span class="nf">plot_matrix</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span> <span class="n">tokens</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="nb">filter</span><span class="o">=</span><span class="s2">&quot;topk&quot;</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">plot_matrix</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span> <span class="n">tokens</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="nb">filter</span><span class="o">=</span><span class="s2">&quot;topk&quot;</span><span class="p">):</span>
     <span class="n">pysvelte</span><span class="o">.</span><span class="n">TopKTable</span><span class="p">(</span>
         <span class="n">tokens</span><span class="o">=</span><span class="n">all_tokens</span><span class="p">,</span>
         <span class="n">activations</span><span class="o">=</span><span class="n">matrix</span><span class="p">,</span>

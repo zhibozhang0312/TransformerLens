@@ -226,6 +226,7 @@
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.phi3.html">transformer_lens.pretrained.weight_conversions.phi3</a></li>
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.qwen.html">transformer_lens.pretrained.weight_conversions.qwen</a></li>
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.qwen2.html">transformer_lens.pretrained.weight_conversions.qwen2</a></li>
+<li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.qwen3.html">transformer_lens.pretrained.weight_conversions.qwen3</a></li>
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.t5.html">transformer_lens.pretrained.weight_conversions.t5</a></li>
 </ul>
 </li>
@@ -312,6 +313,11 @@ generating text - we can cache a lot of past computation and avoid repeating our
 <p>A cache for storing past keys and values for the Transformer. This is important for generating text - we can cache a lot of past computation and avoid repeating ourselves!</p>
 <p>This cache is a list of HookedTransformerKeyValueCacheEntry objects, one for each layer in the Transformer. Each object stores a [batch, pos_so_far, n_heads, d_head] tensor for both keys and values, and each entry has an append method to add a single new key and value.</p>
 <p>The cache can be frozen so that it is not updated during the forward pass. This is useful when we want to run many inputs with the same prefix.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="transformer_lens.past_key_value_caching.HookedTransformerKeyValueCache.__getitem__">
+<span class="sig-name descname"><span class="pre">__getitem__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">idx</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#transformer_lens.past_key_value_caching.HookedTransformerKeyValueCache.__getitem__" title="Permalink to this definition">#</a></dt>
+<dd></dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="transformer_lens.past_key_value_caching.HookedTransformerKeyValueCache.append_attention_mask">
 <span class="sig-name descname"><span class="pre">append_attention_mask</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">attention_mask</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Int</span><span class="p"><span class="pre">[</span></span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'batch</span> <span class="pre">new_tokens'</span></span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#transformer_lens.past_key_value_caching.HookedTransformerKeyValueCache.append_attention_mask" title="Permalink to this definition">#</a></dt>
@@ -439,6 +445,7 @@ generating text - we can cache a lot of past computation and avoid repeating our
             <ul>
 <li><a class="reference internal" href="#">transformer_lens.past_key_value_caching</a><ul>
 <li><a class="reference internal" href="#transformer_lens.past_key_value_caching.HookedTransformerKeyValueCache"><code class="docutils literal notranslate"><span class="pre">HookedTransformerKeyValueCache</span></code></a><ul>
+<li><a class="reference internal" href="#transformer_lens.past_key_value_caching.HookedTransformerKeyValueCache.__getitem__"><code class="docutils literal notranslate"><span class="pre">HookedTransformerKeyValueCache.__getitem__()</span></code></a></li>
 <li><a class="reference internal" href="#transformer_lens.past_key_value_caching.HookedTransformerKeyValueCache.append_attention_mask"><code class="docutils literal notranslate"><span class="pre">HookedTransformerKeyValueCache.append_attention_mask()</span></code></a></li>
 <li><a class="reference internal" href="#transformer_lens.past_key_value_caching.HookedTransformerKeyValueCache.entries"><code class="docutils literal notranslate"><span class="pre">HookedTransformerKeyValueCache.entries</span></code></a></li>
 <li><a class="reference internal" href="#transformer_lens.past_key_value_caching.HookedTransformerKeyValueCache.freeze"><code class="docutils literal notranslate"><span class="pre">HookedTransformerKeyValueCache.freeze()</span></code></a></li>

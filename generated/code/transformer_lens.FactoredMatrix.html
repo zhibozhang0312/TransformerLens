@@ -226,6 +226,7 @@
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.phi3.html">transformer_lens.pretrained.weight_conversions.phi3</a></li>
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.qwen.html">transformer_lens.pretrained.weight_conversions.qwen</a></li>
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.qwen2.html">transformer_lens.pretrained.weight_conversions.qwen2</a></li>
+<li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.qwen3.html">transformer_lens.pretrained.weight_conversions.qwen3</a></li>
 <li class="toctree-l5"><a class="reference internal" href="transformer_lens.pretrained.weight_conversions.t5.html">transformer_lens.pretrained.weight_conversions.t5</a></li>
 </ul>
 </li>
@@ -340,6 +341,12 @@ eigenvalues, norm and SVD.</p>
 <dt class="sig sig-object py" id="transformer_lens.FactoredMatrix.FactoredMatrix.Vh">
 <em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Vh</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Float</span><span class="p"><span class="pre">[</span></span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'*leading_dims</span> <span class="pre">rdim</span> <span class="pre">mdim'</span></span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#transformer_lens.FactoredMatrix.FactoredMatrix.Vh" title="Permalink to this definition">#</a></dt>
 <dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="transformer_lens.FactoredMatrix.FactoredMatrix.__getitem__">
+<span class="sig-name descname"><span class="pre">__getitem__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">idx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tuple</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#transformer_lens.FactoredMatrix.FactoredMatrix" title="transformer_lens.FactoredMatrix.FactoredMatrix"><span class="pre">FactoredMatrix</span></a></span></span><a class="headerlink" href="#transformer_lens.FactoredMatrix.FactoredMatrix.__getitem__" title="Permalink to this definition">#</a></dt>
+<dd><p>Indexing - assumed to only apply to the leading dimensions.</p>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="transformer_lens.FactoredMatrix.FactoredMatrix.collapse_l">
@@ -465,6 +472,7 @@ eigenvalues, norm and SVD.</p>
 <li><a class="reference internal" href="#transformer_lens.FactoredMatrix.FactoredMatrix.T"><code class="docutils literal notranslate"><span class="pre">FactoredMatrix.T</span></code></a></li>
 <li><a class="reference internal" href="#transformer_lens.FactoredMatrix.FactoredMatrix.U"><code class="docutils literal notranslate"><span class="pre">FactoredMatrix.U</span></code></a></li>
 <li><a class="reference internal" href="#transformer_lens.FactoredMatrix.FactoredMatrix.Vh"><code class="docutils literal notranslate"><span class="pre">FactoredMatrix.Vh</span></code></a></li>
+<li><a class="reference internal" href="#transformer_lens.FactoredMatrix.FactoredMatrix.__getitem__"><code class="docutils literal notranslate"><span class="pre">FactoredMatrix.__getitem__()</span></code></a></li>
 <li><a class="reference internal" href="#transformer_lens.FactoredMatrix.FactoredMatrix.collapse_l"><code class="docutils literal notranslate"><span class="pre">FactoredMatrix.collapse_l()</span></code></a></li>
 <li><a class="reference internal" href="#transformer_lens.FactoredMatrix.FactoredMatrix.collapse_r"><code class="docutils literal notranslate"><span class="pre">FactoredMatrix.collapse_r()</span></code></a></li>
 <li><a class="reference internal" href="#transformer_lens.FactoredMatrix.FactoredMatrix.eigenvalues"><code class="docutils literal notranslate"><span class="pre">FactoredMatrix.eigenvalues</span></code></a></li>

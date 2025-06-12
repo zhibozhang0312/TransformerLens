@@ -26,4 +26,5 @@ Submodules
    transformer_lens.pretrained.weight_conversions.phi3
    transformer_lens.pretrained.weight_conversions.qwen
    transformer_lens.pretrained.weight_conversions.qwen2
+   transformer_lens.pretrained.weight_conversions.qwen3
    transformer_lens.pretrained.weight_conversions.t5
