@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import os
 from typing import (
-    Any,
     Dict,
     List,
     NamedTuple,
@@ -35,7 +34,7 @@ import torch.nn.functional as F
 import tqdm.auto as tqdm
 from jaxtyping import Float, Int
 from packaging import version
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from typing_extensions import Literal
@@ -1133,7 +1132,7 @@ class HookedTransformer(HookedRootModule):
         refactor_factored_attn_matrices: bool = False,
         checkpoint_index: Optional[int] = None,
         checkpoint_value: Optional[int] = None,
-        hf_model: Optional[Any] = None,
+        hf_model: Optional[PreTrainedModel] = None,
         device: Optional[Union[str, torch.device]] = None,
         n_devices: int = 1,
         tokenizer: Optional[PreTrainedTokenizerBase] = None,
@@ -1302,7 +1301,7 @@ class HookedTransformer(HookedRootModule):
         ), "Quantization not supported"
 
         if hf_model is not None:
-            assert hf_model.config is not None
+            assert hasattr(hf_model, "config"), "PreTrainedModel must have a config attribute"
             hf_cfg = hf_model.config.to_dict()
             qc = hf_cfg.get("quantization_config", {})
             load_in_4bit = qc.get("load_in_4bit", False)
