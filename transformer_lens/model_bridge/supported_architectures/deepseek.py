@@ -65,4 +65,4 @@ class DeepseekArchitectureAdapter(ArchitectureAdapter):
             ),
             "ln_final": ("model.norm", LayerNormBridge),
             "unembed": ("lm_head", UnembeddingBridge),
-        } 
+        }
