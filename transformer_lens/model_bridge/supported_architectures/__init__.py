@@ -52,7 +52,7 @@ from transformer_lens.model_bridge.supported_architectures.neo import (
     NeoArchitectureAdapter,
 )
 from transformer_lens.model_bridge.supported_architectures.neox import (
-    NeoXArchitectureAdapter,
+    NeoxArchitectureAdapter,
 )
 from transformer_lens.model_bridge.supported_architectures.opt import (
     OptArchitectureAdapter,
@@ -93,7 +93,7 @@ __all__ = [
     "NanogptArchitectureAdapter",
     "NeelSoluOldArchitectureAdapter",
     "NeoArchitectureAdapter",
-    "NeoXArchitectureAdapter",
+    "NeoxArchitectureAdapter",
     "OptArchitectureAdapter",
     "PhiArchitectureAdapter",
     "Phi3ArchitectureAdapter",
