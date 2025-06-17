@@ -13,27 +13,27 @@ from transformer_lens.model_bridge.bridge import TransformerBridge
 
 def boot(
     model_name: str,
-    config: dict | None = None,
+    model_config: dict | None = None,
+    tokenizer_config: dict | None = None,
     device: str | torch.device | None = None,
     dtype: torch.dtype = torch.float32,
-    **kwargs,
 ) -> TransformerBridge:
     """Boot a model from HuggingFace.
 
     Args:
         model_name: The name of the model to load.
-        config: The config dict to use. If None, will be loaded from HuggingFace.
+        model_config: Additional configuration parameters to override the default config.
+        tokenizer_config: The config dict to use for tokenizer loading. If None, will use default settings.
         device: The device to use. If None, will be determined automatically.
         dtype: The dtype to use for the model.
-        **kwargs: Additional keyword arguments for from_pretrained.
 
     Returns:
         The bridge to the loaded model.
     """
-    hf_config = AutoConfig.from_pretrained(model_name, **kwargs)
+    hf_config = AutoConfig.from_pretrained(model_name, **(model_config or {}))
     adapter = ArchitectureAdapterFactory.select_architecture_adapter(hf_config)
     default_config = adapter.default_cfg
-    merged_config = {**default_config, **(config or {})}
+    merged_config = {**default_config, **(model_config or {})}
 
     # Load the model from HuggingFace using the original config
     hf_model = AutoModelForCausalLM.from_pretrained(
@@ -44,7 +44,7 @@ def boot(
     )
 
     # Load the tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_name, **kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, **(tokenizer_config or {}))
 
     return TransformerBridge(
         hf_model,
