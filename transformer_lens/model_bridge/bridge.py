@@ -4,16 +4,31 @@ This module provides the bridge components that wrap remote model components and
 a consistent interface for accessing their weights and performing operations.
 """
 
-from typing import Any, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+    overload,
+)
 
+import numpy as np
 import torch
 import torch.nn as nn
-from transformers.modeling_utils import PreTrainedModel
 
+from transformer_lens.ActivationCache import ActivationCache
 from transformer_lens.model_bridge.architecture_adapter import ArchitectureAdapter
 from transformer_lens.model_bridge.component_creation import (
     create_and_replace_components_from_mapping,
 )
+
+if TYPE_CHECKING:
+    from transformer_lens.ActivationCache import ActivationCache
 
 
 class TransformerBridge(nn.Module):
@@ -24,9 +39,7 @@ class TransformerBridge(nn.Module):
     to map between the HookedTransformer and HuggingFace model structures.
     """
 
-    def __init__(
-        self, model: Union[nn.Module, PreTrainedModel], adapter: ArchitectureAdapter, tokenizer: Any
-    ):
+    def __init__(self, model: nn.Module, adapter: ArchitectureAdapter, tokenizer: Any):
         """Initialize the bridge.
 
         Args:
@@ -35,7 +48,7 @@ class TransformerBridge(nn.Module):
             tokenizer: The tokenizer to use (required)
         """
         super().__init__()
-        self.original_model = model
+        self.original_model: nn.Module = model
         self.bridge = adapter
         self.cfg = adapter.user_cfg
         self.tokenizer = tokenizer
@@ -128,94 +141,290 @@ class TransformerBridge(nn.Module):
         lines.extend(self._format_component_mapping(mapping, indent=1))
         return "\n".join(lines)
 
-    def generate(
+    # ==================== TOKENIZATION METHODS ====================
+
+    def to_tokens(
         self,
-        input: Any = "",
-        max_new_tokens: int = 10,
-        stop_at_eos: bool = True,
-        eos_token_id: int | None = None,
-        do_sample: bool = True,
-        top_k: int | None = None,
-        top_p: float | None = None,
-        temperature: float = 1.0,
-        freq_penalty: float = 0.0,
-        use_past_kv_cache: bool = True,
-        prepend_bos: bool | None = None,
-        padding_side: str | None = None,
-        return_type: str | None = "input",
-        verbose: bool = True,
+        input: Union[str, List[str]],
+        prepend_bos: Optional[bool] = None,
+        padding_side: Optional[str] = None,
+        move_to_device: bool = True,
+        truncate: bool = True,
+    ) -> torch.Tensor:
+        """Converts a string to a tensor of tokens.
+
+        Args:
+            input: The input to tokenize
+            prepend_bos: Whether to prepend the BOS token
+            padding_side: Which side to pad on
+            move_to_device: Whether to move to model device
+            truncate: Whether to truncate to model context length
+
+        Returns:
+            Token tensor of shape [batch, pos]
+        """
+        assert self.tokenizer is not None, "Cannot use to_tokens without a tokenizer"
+
+        # Handle prepend_bos logic
+        if prepend_bos is None:
+            prepend_bos = getattr(self.cfg, "default_prepend_bos", True)
+
+        # Handle padding_side logic
+        if padding_side is None:
+            padding_side = getattr(self.tokenizer, "padding_side", "right")
+
+        # Tokenize
+        tokens = self.tokenizer(
+            input,
+            return_tensors="pt",
+            padding=True,
+            truncation=truncate,
+            max_length=getattr(self.cfg, "n_ctx", None) if truncate else None,
+        )["input_ids"]
+
+        if move_to_device:
+            device = next(self.original_model.parameters()).device
+            tokens = tokens.to(device)
+
+        return tokens
+
+    def to_string(
+        self,
+        tokens: Union[List[int], torch.Tensor, np.ndarray],
+    ) -> Union[str, List[str]]:
+        """Convert tokens to string(s).
+
+        Args:
+            tokens: Tokens to convert
+
+        Returns:
+            Decoded string(s)
+        """
+        assert self.tokenizer is not None, "Cannot use to_string without a tokenizer"
+
+        if not isinstance(tokens, torch.Tensor):
+            tokens = torch.tensor(tokens)
+
+        if len(tokens.shape) == 2:
+            return self.tokenizer.batch_decode(tokens, clean_up_tokenization_spaces=False)
+        elif len(tokens.shape) <= 1:
+            return self.tokenizer.decode(tokens, clean_up_tokenization_spaces=False)
+        else:
+            raise ValueError(f"Invalid shape passed in: {tokens.shape}")
+
+    def to_str_tokens(
+        self,
+        input: Union[str, torch.Tensor, np.ndarray, List],
+        prepend_bos: Optional[bool] = None,
+        padding_side: Optional[str] = None,
+    ) -> Union[List[str], List[List[str]]]:
+        """Map text or tokens to a list of tokens as strings.
+
+        Args:
+            input: The input to convert
+            prepend_bos: Whether to prepend BOS token
+            padding_side: Which side to pad on
+
+        Returns:
+            List of token strings
+        """
+        assert self.tokenizer is not None, "Cannot use to_str_tokens without a tokenizer"
+
+        if isinstance(input, list):
+            # Use cast to help mypy understand the recursive return type
+            return cast(
+                List[List[str]],
+                [self.to_str_tokens(item, prepend_bos, padding_side) for item in input],
+            )
+        elif isinstance(input, str):
+            tokens = self.to_tokens(input, prepend_bos=prepend_bos, padding_side=padding_side)[0]
+        elif isinstance(input, torch.Tensor):
+            tokens = input.squeeze()
+            if tokens.dim() == 0:
+                tokens = tokens.unsqueeze(0)
+            assert (
+                tokens.dim() == 1
+            ), f"Invalid tokens input to to_str_tokens, has shape: {tokens.shape}"
+        elif isinstance(input, np.ndarray):
+            tokens_np = input.squeeze()
+            if tokens_np.ndim == 0:
+                tokens_np = np.expand_dims(tokens_np, axis=0)
+            assert (
+                tokens_np.ndim == 1
+            ), f"Invalid tokens input to to_str_tokens, has shape: {tokens_np.shape}"
+            tokens = torch.tensor(tokens_np)
+        else:
+            raise ValueError(f"Invalid input type to to_str_tokens: {type(input)}")
+
+        str_tokens = self.tokenizer.batch_decode(tokens, clean_up_tokenization_spaces=False)
+        return str_tokens
+
+    def to_single_token(self, string: str) -> int:
+        """Map a string that makes up a single token to the id for that token.
+
+        Args:
+            string: The string to convert
+
+        Returns:
+            Token ID
+
+        Raises:
+            AssertionError: If string is not a single token
+        """
+        token = self.to_tokens(string, prepend_bos=False).squeeze()
+        if token.numel() != 1:
+            raise AssertionError(f"Input string: {string} is not a single token!")
+        return int(token.item())
+
+    def to_single_str_token(self, int_token: int) -> str:
+        """Get the single token corresponding to an int in string form.
+
+        Args:
+            int_token: The token ID
+
+        Returns:
+            The token string
+        """
+        assert isinstance(int_token, int)
+        token = self.to_str_tokens(torch.tensor([int_token]))
+        if isinstance(token, list) and len(token) == 1:
+            return str(token[0])
+        raise AssertionError("Expected a single string token.")
+
+    # ==================== FORWARD PASS METHODS ====================
+
+    def forward(
+        self,
+        input: Union[str, List[str], torch.Tensor],
+        return_type: str = "logits",
+        loss_per_token: bool = False,
+        prepend_bos: Optional[bool] = None,
+        padding_side: Optional[str] = None,
+        **kwargs,
     ) -> Any:
-        """Sample tokens from the model, ported from HookedTransformer.generate."""
-        # Tokenize input if needed
+        """Forward pass through the model.
+
+        Args:
+            input: Input to the model
+            return_type: Type of output to return ('logits', 'loss', 'both', None)
+            loss_per_token: Whether to return loss per token
+            prepend_bos: Whether to prepend BOS token
+            padding_side: Which side to pad on
+            **kwargs: Additional arguments passed to model
+
+        Returns:
+            Model output based on return_type
+        """
+        # Handle string input
         if isinstance(input, (str, list)):
-            assert self.tokenizer is not None, "Tokenizer must be set to pass string input."
-
-            # Fix padding token issue for GPT2 tokenizers
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-
-            input_ids = self.tokenizer(
-                input,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-            )["input_ids"]
+            input_ids = self.to_tokens(input, prepend_bos=prepend_bos, padding_side=padding_side)
         else:
             input_ids = input
-        if input_ids.ndim == 1:
-            input_ids = input_ids.unsqueeze(0)
-        input_ids = input_ids.to(next(self.original_model.parameters()).device)
 
-        # Set up generation kwargs
-        gen_kwargs = {
-            "max_new_tokens": max_new_tokens,
-            "do_sample": do_sample,
-            "temperature": temperature,
-        }
-        if top_k is not None:
-            gen_kwargs["top_k"] = top_k
-        if top_p is not None:
-            gen_kwargs["top_p"] = top_p
-        if eos_token_id is not None:
-            gen_kwargs["eos_token_id"] = eos_token_id
-        # Note: freq_penalty and use_past_kv_cache are not always supported by all models
-        if hasattr(self.original_model, "generate"):
-            output_ids = self.original_model.generate(input_ids, **gen_kwargs)  # type: ignore[operator,arg-type]
+        # Run model
+        if hasattr(self.original_model, "forward"):
+            output = self.original_model.forward(input_ids, **kwargs)
         else:
-            raise RuntimeError("Underlying model does not support generate method.")
+            output = self.original_model(input_ids, **kwargs)
 
-        # Return type logic (match HookedTransformer)
-        if return_type == "input":
-            if isinstance(input, (str, list)):
-                return_type = "str"
-            elif input_ids.ndim == 2:
-                return_type = "tokens"
-            else:
-                return_type = "embeds"
-        if return_type == "str":
-            decoded_texts = [
-                self.tokenizer.decode(tokens, skip_special_tokens=True) for tokens in output_ids
-            ]
-            return decoded_texts[0] if len(decoded_texts) == 1 else decoded_texts
-        elif return_type == "tokens":
-            return output_ids
+        # Handle different return types
+        if return_type == "logits":
+            if hasattr(output, "logits"):
+                return output.logits
+            return output
+        elif return_type == "loss":
+            if hasattr(output, "loss"):
+                return output.loss
+            # Calculate loss manually if needed
+            return self.loss_fn(output.logits if hasattr(output, "logits") else output, input_ids)
+        elif return_type == "both":
+            logits = output.logits if hasattr(output, "logits") else output
+            loss = output.loss if hasattr(output, "loss") else self.loss_fn(logits, input_ids)
+            return logits, loss
         else:
-            return output_ids
+            return output
 
-    def forward(self, *args: Any, **kwargs: Any) -> Any:
-        """Forward pass through the underlying HuggingFace model, with all arguments passed through."""
-        # Pre-processing (if needed)
-        output = self.original_model(*args, **kwargs)
-        # Post-processing (if needed)
-        return output
+    def loss_fn(
+        self,
+        logits: torch.Tensor,
+        tokens: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        per_token: bool = False,
+    ) -> torch.Tensor:
+        """Calculate cross-entropy loss.
 
-    def run_with_cache(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, torch.Tensor]]:
-        """Run the model and cache all activations at HookPoint objects.
-        Returns (output, cache_dict)."""
+        Args:
+            logits: Model logits
+            tokens: Target tokens
+            attention_mask: Attention mask
+            per_token: Whether to return per-token loss
+
+        Returns:
+            Loss tensor
+        """
+        # Simple cross-entropy loss implementation
+        if tokens.device != logits.device:
+            tokens = tokens.to(logits.device)
+
+        # Shift tokens for next-token prediction
+        target_tokens = tokens[:, 1:]
+        pred_logits = logits[:, :-1]
+
+        loss = torch.nn.functional.cross_entropy(
+            pred_logits.reshape(-1, pred_logits.size(-1)),
+            target_tokens.reshape(-1),
+            reduction="none",
+        )
+
+        if per_token:
+            return loss.reshape(target_tokens.shape)
+        else:
+            return loss.mean()
+
+    # ==================== CACHING METHODS ====================
+
+    @overload
+    def run_with_cache(
+        self,
+        input: Union[str, List[str], torch.Tensor],
+        return_cache_object: Literal[True] = True,
+        remove_batch_dim: bool = False,
+        **kwargs,
+    ) -> Tuple[Any, ActivationCache]:
+        ...
+
+    @overload
+    def run_with_cache(
+        self,
+        input: Union[str, List[str], torch.Tensor],
+        return_cache_object: Literal[False],
+        remove_batch_dim: bool = False,
+        **kwargs,
+    ) -> Tuple[Any, Dict[str, torch.Tensor]]:
+        ...
+
+    def run_with_cache(
+        self,
+        input: Union[str, List[str], torch.Tensor],
+        return_cache_object: bool = True,
+        remove_batch_dim: bool = False,
+        **kwargs,
+    ) -> Tuple[Any, Union[ActivationCache, Dict[str, torch.Tensor]]]:
+        """Run the model and cache all activations.
+
+        Args:
+            input: Input to the model
+            return_cache_object: Whether to return ActivationCache object
+            remove_batch_dim: Whether to remove batch dimension
+            **kwargs: Additional arguments
+
+        Returns:
+            Tuple of (output, cache)
+        """
         from transformer_lens.hook_points import HookPoint
 
-        cache: dict[str, torch.Tensor] = {}
-        hooks: list[tuple[HookPoint, str]] = []
+        cache: Dict[str, torch.Tensor] = {}
+        hooks: List[Tuple[HookPoint, str]] = []
         visited: set[int] = set()
 
         def make_cache_hook(name: str):
@@ -225,12 +434,13 @@ class TransformerBridge(nn.Module):
 
             return cache_hook
 
-        # Recursively collect all HookPoint objects and their names
+        # Recursively collect all HookPoint objects
         def collect_hookpoints(module: nn.Module, prefix: str = "") -> None:
             obj_id = id(module)
             if obj_id in visited:
                 return
             visited.add(obj_id)
+
             for attr_name in dir(module):
                 if attr_name.startswith("_"):
                     continue
@@ -238,6 +448,7 @@ class TransformerBridge(nn.Module):
                     attr = getattr(module, attr_name)
                 except Exception:
                     continue
+
                 name = f"{prefix}.{attr_name}" if prefix else attr_name
                 if isinstance(attr, HookPoint):
                     hooks.append((attr, name))
@@ -255,23 +466,34 @@ class TransformerBridge(nn.Module):
             hp.add_hook(make_cache_hook(name))
 
         try:
-            # Process input - if it's a string, tokenize it first
-            processed_args = list(args)
-            if len(args) > 0 and isinstance(args[0], str):
+            processed_args = [input]
+            # Handle string input whether passed positionally or as a kwarg
+            if processed_args and isinstance(processed_args[0], str):
                 assert self.tokenizer is not None, "Tokenizer must be set to pass string input."
-
-                # Fix padding token issue for GPT2 tokenizers
                 if self.tokenizer.pad_token is None:
                     self.tokenizer.pad_token = self.tokenizer.eos_token
-
                 input_ids = self.tokenizer(
-                    args[0],
+                    processed_args[0],
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
                 )["input_ids"]
                 input_ids = input_ids.to(next(self.original_model.parameters()).device)
-                processed_args[0] = input_ids
+                kwargs["input_ids"] = input_ids
+                processed_args = processed_args[1:]
+            elif "input" in kwargs and isinstance(kwargs["input"], str):
+                assert self.tokenizer is not None, "Tokenizer must be set to pass string input."
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+                input_ids = self.tokenizer(
+                    kwargs["input"],
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                )["input_ids"]
+                input_ids = input_ids.to(next(self.original_model.parameters()).device)
+                kwargs["input_ids"] = input_ids
+                del kwargs["input"]
 
             # Run the underlying model's forward method
             output = self.original_model(*processed_args, **kwargs)
@@ -284,7 +506,148 @@ class TransformerBridge(nn.Module):
             # Remove hooks
             for hp, _ in hooks:
                 hp.remove_hooks()
-        return output, cache
+
+        if return_cache_object:
+            cache_obj = ActivationCache(cache, self, has_batch_dim=not remove_batch_dim)
+            return output, cache_obj
+        else:
+            return output, cache
+
+    # ==================== GENERATION METHODS ====================
+
+    def generate(
+        self,
+        input: Union[str, List[str], torch.Tensor] = "",
+        max_new_tokens: int = 10,
+        stop_at_eos: bool = True,
+        eos_token_id: Optional[int] = None,
+        do_sample: bool = True,
+        top_k: Optional[int] = None,
+        top_p: Optional[float] = None,
+        temperature: float = 1.0,
+        freq_penalty: float = 0.0,
+        use_past_kv_cache: bool = True,
+        prepend_bos: Optional[bool] = None,
+        padding_side: Optional[str] = None,
+        return_type: Optional[str] = "input",
+        verbose: bool = True,
+    ) -> Union[str, List[str], torch.Tensor]:
+        """Generate text from the model.
+
+        Args:
+            input: Input prompt
+            max_new_tokens: Maximum number of tokens to generate
+            stop_at_eos: Whether to stop at EOS token
+            eos_token_id: EOS token ID
+            do_sample: Whether to sample from distribution
+            top_k: Top-k sampling parameter
+            top_p: Top-p sampling parameter
+            temperature: Sampling temperature
+            freq_penalty: Frequency penalty
+            use_past_kv_cache: Whether to use KV cache
+            prepend_bos: Whether to prepend BOS token
+            padding_side: Which side to pad on
+            return_type: Type of output to return
+            verbose: Whether to show progress
+
+        Returns:
+            Generated text or tokens
+        """
+        # Use the underlying model's generate method if available
+        if hasattr(self.original_model, "generate"):
+            # Tokenize input if needed
+            if isinstance(input, (str, list)):
+                input_ids = self.to_tokens(
+                    input, prepend_bos=prepend_bos, padding_side=padding_side
+                )
+            else:
+                input_ids = input
+
+            if input_ids.ndim == 1:
+                input_ids = input_ids.unsqueeze(0)
+
+            # Set up generation kwargs
+            gen_kwargs = {
+                "max_new_tokens": max_new_tokens,
+                "do_sample": do_sample,
+                "temperature": temperature,
+            }
+            if top_k is not None:
+                gen_kwargs["top_k"] = top_k
+            if top_p is not None:
+                gen_kwargs["top_p"] = top_p
+            if eos_token_id is not None:
+                gen_kwargs["eos_token_id"] = eos_token_id
+
+            if not hasattr(self.original_model, "generate"):
+                raise RuntimeError("Underlying model does not support generate method.")
+            output_ids = self.original_model.generate(input_ids, **gen_kwargs)  # type: ignore[operator]
+
+            # Handle return type
+            if return_type == "input":
+                if isinstance(input, (str, list)):
+                    return_type = "str"
+                else:
+                    return_type = "tokens"
+
+            if return_type == "str":
+                decoded_texts = [
+                    self.tokenizer.decode(tokens, skip_special_tokens=True) for tokens in output_ids
+                ]
+                return decoded_texts[0] if len(decoded_texts) == 1 else decoded_texts
+            elif return_type == "tokens":
+                return output_ids
+            else:
+                return output_ids
+        else:
+            raise RuntimeError("Underlying model does not support generate method.")
+
+    # ==================== UTILITY METHODS ====================
+
+    def to(self, *args, **kwargs) -> "TransformerBridge":
+        """Move model to device or change dtype.
+
+        Args:
+            args: Positional arguments for nn.Module.to
+            kwargs: Keyword arguments for nn.Module.to
+
+        Returns:
+            Self for chaining
+        """
+        self.original_model = self.original_model.to(*args, **kwargs)
+        return self
+
+    def cuda(self, device: Optional[Union[int, torch.device]] = None) -> "TransformerBridge":
+        """Move model to CUDA.
+
+        Args:
+            device: CUDA device
+
+        Returns:
+            Self for chaining
+        """
+        if isinstance(device, int):
+            return self.to(f"cuda:{device}")
+        elif device is None:
+            return self.to("cuda")
+        else:
+            return self.to(device)
+
+    def cpu(self) -> "TransformerBridge":
+        """Move model to CPU.
+
+        Returns:
+            Self for chaining
+        """
+        return self.to(torch.device("cpu"))  # type: ignore
+
+    def mps(self) -> "TransformerBridge":
+        """Move model to MPS.
+
+        Returns:
+            Self for chaining
+        """
+        return self.to(torch.device("mps"))  # type: ignore
 
     @property
     def blocks(self):
