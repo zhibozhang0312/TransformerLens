@@ -1,4 +1,4 @@
-"""Boot module for TransformerLens.
+"""Transformers module for TransformerLens.
 
 This module provides functionality to load and convert models from HuggingFace to TransformerLens format.
 """
@@ -14,7 +14,6 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
-from transformer_lens.model_bridge import ArchitectureAdapterFactory
 from transformer_lens.model_bridge.bridge import TransformerBridge
 from transformer_lens.utils import get_tokenizer_with_bos
 
@@ -38,6 +37,11 @@ def boot(
     Returns:
         The bridge to the loaded model.
     """
+    # Lazy import to avoid circular import
+    from transformer_lens.factories.architecture_adapter_factory import (
+        ArchitectureAdapterFactory,
+    )
+
     hf_config = AutoConfig.from_pretrained(model_name, **kwargs)
     adapter = ArchitectureAdapterFactory.select_architecture_adapter(hf_config)
     default_config = adapter.default_cfg
@@ -125,3 +129,6 @@ def setup_tokenizer(
         tokenizer.bos_token = tokenizer.eos_token
 
     return tokenizer
+
+
+setattr(TransformerBridge, "boot_transformers", staticmethod(boot))

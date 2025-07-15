@@ -18,7 +18,6 @@ from .HookedEncoderDecoder import HookedEncoderDecoder
 from .BertNextSentencePrediction import BertNextSentencePrediction
 from . import head_detector
 from . import loading_from_pretrained as loading
-from . import boot
 from . import patching
 from . import train
 
@@ -41,5 +40,4 @@ __all__ = [
     "EasyTransformerConfig",
     "EasyTransformerKeyValueCache",
     "EasyTransformerKeyValueCacheEntry",
-    "boot",
 ]
