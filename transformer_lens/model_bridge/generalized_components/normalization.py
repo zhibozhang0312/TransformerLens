@@ -15,6 +15,11 @@ class NormalizationBridge(GeneralizedComponent):
     This component provides standardized input/output hooks.
     """
 
+    hook_aliases = {
+        "hook_attn_in": "hook_out",
+        "hook_mlp_in": "hook_out",
+    }
+
     def __init__(
         self,
         name: str,
