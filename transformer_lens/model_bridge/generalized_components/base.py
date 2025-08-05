@@ -1,13 +1,17 @@
 """Base class for generalized transformer components."""
 
+from __future__ import annotations
+
+import dis
+import inspect
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
 
-from transformer_lens.model_bridge.architecture_adapter import ArchitectureAdapter
-from transformer_lens.model_bridge.types import RemoteComponent
+from transformer_lens.hook_points import HookPoint
+from transformer_lens.utilities.aliases import resolve_alias
 
 
 class GeneralizedComponent(nn.Module):
@@ -17,114 +21,58 @@ class GeneralizedComponent(nn.Module):
     and handles hook registration and execution.
     """
 
+    # Class attribute indicating whether this component represents a list item (like blocks)
+    is_list_item: bool = False
+
+    # Dictionary mapping deprecated hook names to their new equivalents
+    # Subclasses can override this to define their own aliases
+    hook_aliases: Dict[str, str] = {}
+    property_aliases: Dict[str, str] = {}
+
     def __init__(
         self,
-        original_component: RemoteComponent,
         name: str,
-        architecture_adapter: ArchitectureAdapter,
+        config: Optional[Any] = None,
+        submodules: Optional[Dict[str, "GeneralizedComponent"]] = None,
     ):
         """Initialize the generalized component.
 
         Args:
-            original_component: The original transformer component to wrap
             name: The name of this component
-            architecture_adapter: Architecture adapter for component-specific operations
+            config: Optional configuration object for the component
+            submodules: Dictionary of GeneralizedComponent submodules to register
         """
         super().__init__()
-        self.original_component = original_component
         self.name = name
-        self.architecture_adapter = architecture_adapter
-        self.hooks: dict[str, list[Callable[..., torch.Tensor]]] = {}
-        self.hook_outputs: dict[str, Any] = {}
-        self._hook_tracker = None
+        self.config = config
+        self.submodules = submodules or {}
 
-    def set_hook_tracker(self, tracker: Any) -> None:
-        """Set the hook tracker for this component.
+        # Standardized hooks for all bridge components
+        self.hook_in = HookPoint()
+        self.hook_out = HookPoint()
+
+    def _is_getattr_called_internally(self) -> bool:
+        """This function checks if the __getattr__ method was being called internally
+        (e.g by the setup process or run_with_cache).
+        """
+        # Look through the call stack
+        for frame_info in inspect.stack():
+            if "setup_components" in frame_info.function or "run_with_cache" in frame_info.function:
+                return True
+        return False
+
+    def set_original_component(self, original_component: nn.Module) -> None:
+        """Set the original component that this bridge wraps.
 
         Args:
-            tracker: The hook tracker instance
+            original_component: The original transformer component to wrap
         """
-        self._hook_tracker = tracker
+        self.add_module("_original_component", original_component)
 
-    def get_hook_tracker(self) -> Any | None:
-        """Get the hook tracker for this component.
-
-        Returns:
-            The hook tracker instance if set, None otherwise
-        """
-        return self._hook_tracker
-
-    def register_hook(self, hook_name: str, hook_fn: Callable[..., torch.Tensor]) -> None:
-        """Register a hook function for a specific hook point.
-
-        Args:
-            hook_name: Name of the hook point
-            hook_fn: Function to call at this hook point
-        """
-        if hook_name not in self.hooks:
-            self.hooks[hook_name] = []
-        self.hooks[hook_name].append(hook_fn)
-
-        # If we have a hook tracker, register the hook there too
-        if self._hook_tracker is not None:
-            self._hook_tracker.register_component_hook(self.name, hook_name, hook_fn)
-
-    def remove_hook(self, hook_name: str, hook_fn: Callable[..., torch.Tensor]) -> None:
-        """Remove a previously registered hook.
-
-        Args:
-            hook_name: Name of the hook point
-            hook_fn: Function to remove
-        """
-        if hook_name in self.hooks:
-            self.hooks[hook_name].remove(hook_fn)
-            if not self.hooks[hook_name]:  # If no hooks left, remove the entry
-                del self.hooks[hook_name]
-
-    def execute_hooks(self, hook_name: str, tensor: torch.Tensor | tuple) -> torch.Tensor | tuple:
-        """Execute all hooks registered for a specific hook point.
-
-        Args:
-            hook_name: Name of the hook point
-            tensor: The tensor or tuple to pass through the hooks
-
-        Returns:
-            The result of the last hook execution, or the input tensor if no hooks
-        """
-        # Store the input tensor as the hook output
-        self.hook_outputs[hook_name] = tensor
-
-        # Execute hooks if any
-        if hook_name in self.hooks:
-            result = tensor
-            for hook in self.hooks[hook_name]:
-                # For tuple outputs (like attention), pass the first element to hooks
-                if isinstance(result, tuple):
-                    hooked_first = hook(result[0], hook=self)  # Pass hook object as second argument
-                    result = (hooked_first,) + result[1:]
-                else:
-                    result = hook(result, hook=self)  # Pass hook object as second argument
-                # Update the hook output with the modified tensor
-                self.hook_outputs[hook_name] = result
-            return result
-
-        return tensor
-
-    def get_hook_output(self, hook_name: str) -> Any:
-        """Get the output from a specific hook point.
-
-        Args:
-            hook_name: Name of the hook point
-
-        Returns:
-            The stored output for this hook point
-        """
-        return self.hook_outputs.get(hook_name)
-
-    def clear_hooks(self) -> None:
-        """Clear all registered hooks."""
-        self.hooks.clear()
-        self.hook_outputs.clear()
+    @property
+    def original_component(self) -> Optional[nn.Module]:
+        """Get the original component."""
+        return self._modules.get("_original_component", None)
 
     def add_hook(self, hook_fn: Callable[..., torch.Tensor], hook_name: str = "output") -> None:
         """Add a hook function (HookedTransformer-compatible interface).
@@ -133,7 +81,14 @@ class GeneralizedComponent(nn.Module):
             hook_fn: Function to call at this hook point
             hook_name: Name of the hook point (defaults to "output")
         """
-        self.register_hook(hook_name, hook_fn)
+        if hook_name == "output":
+            self.hook_out.add_hook(hook_fn)
+        elif hook_name == "input":
+            self.hook_in.add_hook(hook_fn)
+        else:
+            raise ValueError(
+                f"Hook name '{hook_name}' not supported. Supported names are 'output' and 'input'."
+            )
 
     def remove_hooks(self, hook_name: str | None = None) -> None:
         """Remove hooks (HookedTransformer-compatible interface).
@@ -142,80 +97,140 @@ class GeneralizedComponent(nn.Module):
             hook_name: Name of the hook point to remove. If None, removes all hooks.
         """
         if hook_name is None:
-            self.clear_hooks()
+            self.hook_in.remove_hooks()
+            self.hook_out.remove_hooks()
+        elif hook_name == "output":
+            self.hook_out.remove_hooks()
+        elif hook_name == "input":
+            self.hook_in.remove_hooks()
         else:
-            if hook_name in self.hooks:
-                del self.hooks[hook_name]
-            if hook_name in self.hook_outputs:
-                del self.hook_outputs[hook_name]
+            raise ValueError(
+                f"Hook name '{hook_name}' not supported. Supported names are 'output' and 'input'."
+            )
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
-        """Forward pass through the component.
-
-        This should be implemented by subclasses to define the specific
-        behavior of the component. The return type should match the original
-        component's forward method.
-
-        Args:
-            *args: Input arguments
-            **kwargs: Input keyword arguments
-
-        Returns:
-            The output from the original component, with hooks applied
-        """
-        raise NotImplementedError("Subclasses must implement forward()")
-
-    def _apply_hooks_to_outputs(self, outputs: Any, hook_map: dict[str | int, str]) -> Any:
-        """Apply hooks to outputs from the original component.
-
-        Args:
-            outputs: The outputs from the original component
-            hook_map: Dictionary mapping output indices/keys to hook names
-
-        Returns:
-            The outputs with hooks applied
-        """
-        if isinstance(outputs, tuple):
-            # For tuple outputs, apply hooks to each element that has a hook
-            return tuple(
-                self.execute_hooks(hook_map[i], out) if i in hook_map else out
-                for i, out in enumerate(outputs)
+        """Generic forward pass for bridge components with input/output hooks."""
+        # Since we use add_module, the component is stored in _modules
+        original_component = self._modules.get("_original_component", None)
+        if original_component is None:
+            raise RuntimeError(
+                f"Original component not set for {self.name}. Call set_original_component() first."
             )
-        elif isinstance(outputs, dict):
-            # For dict outputs, apply hooks to each value that has a hook
-            return {
-                k: self.execute_hooks(hook_map[k], v) if k in hook_map else v
-                for k, v in outputs.items()
-            }
+
+        # Try to find the main input
+        input_arg_names = [
+            "input",
+            "hidden_states",
+            "input_ids",
+            "query_input",
+            "x",
+            "inputs_embeds",
+        ]
+        input_found = False
+        # Try kwargs first
+        for name in input_arg_names:
+            if name in kwargs:
+                kwargs[name] = self.hook_in(kwargs[name])
+                input_found = True
+                break
+        # If not in kwargs, try first positional arg
+        if not input_found and len(args) > 0 and isinstance(args[0], torch.Tensor):
+            hooked_input = self.hook_in(args[0])
+            args = (hooked_input,) + args[1:]
+            input_found = True
+        # Call the original component's forward
+        output = original_component(*args, **kwargs)
+
+        # Handle tuple outputs from transformer components
+        if isinstance(output, tuple):
+            # Apply hook to first element (hidden states) and preserve the rest
+            hooked_first = self.hook_out(output[0])
+            output = (hooked_first,) + output[1:]
         else:
-            # For single tensor outputs, apply the default hook
-            return self.execute_hooks(hook_map.get("output", "output"), outputs)
+            # Pass output through hook_out
+            output = self.hook_out(output)
+
+        return output
+
+    def _getattr_helper(self, name: str) -> Any:
+        """This function contains the main getattr logic for the component.
+        It is extracted into a helper function to avoid recursion issues when trying
+        to access certain aliased attributes like W_Q, W_K, W_V, etc."""
+
+        # Only called if attribute not found through normal lookup
+        # First check if it's a module attribute (like hook_in, hook_out)
+        if hasattr(self, "_modules") and name in self._modules:
+            return self._modules[name]
+
+        # Check if this is a deprecated hook alias
+        resolved_hook = resolve_alias(self, name, self.hook_aliases)
+        if resolved_hook is not None:
+            return resolved_hook
+
+        # Avoid recursion by checking if we're looking for original_component
+        if name == "original_component":
+            # This should not happen since original_component is a property
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+        # Check if this is a submodule that should be registered as a PyTorch module
+        # but hasn't been yet. This prevents PyTorch's add_module from failing.
+        if name in self.submodules:
+            # Don't delegate to original component for submodules
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+        # Try to get from original_component if it exists
+        original_component = self._modules.get("_original_component", None)
+        if original_component is not None:
+            try:
+                return getattr(original_component, name)
+            except AttributeError:
+                pass
+
+        # If we get here, the attribute wasn't found anywhere
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def __getattr__(self, name: str):
-        # Only called if attribute not found through normal lookup
-        # Try to get from original_component
-        if "original_component" in self._modules:
-            try:
-                return getattr(self._modules["original_component"], name)
-            except AttributeError:
-                # If direct attribute lookup fails, try translating the path
-                # Get the current component's path and append the requested name
+        # This code is to check if __getattr__ was called internally, because we only want to resolve aliases
+        # if the user is trying to access an attribute directly, not if it's being called internally during setup or run_with_cache.
 
-                current_path = self.name
-                full_path = f"{current_path}.{name}"
+        # Get execution frame of caller
+        current_frame = inspect.currentframe()
+        if current_frame is None:
+            # If we can't get frame info, fall back to regular attribute access
+            return self._getattr_helper(name)
+
+        frame = current_frame.f_back
+        # Extract the module name from the frame
+        caller_module = frame.f_globals.get("__name__", "") if frame else ""
+
+        # Check 1: Is __getattr__ being called internally
+        if not caller_module.startswith("transformer_lens") and not caller_module.startswith(
+            "torch"
+        ):
+            # Check 2: Is next access .weight or .bias?
+            # If the user is correctly accessing a property like W_Q.weight or W_Q.bias,
+            # we want to return the original W_Q and not W_Q.weight (the alias), because otherwise
+            # we would essentially be calling W_Q.weight.weight which causes an error.
+            if frame is not None:
                 try:
-                    # Get the last component of the translated path
-                    translated_name = self.architecture_adapter.translate_transformer_lens_path(
-                        full_path, last_component_only=True
-                    )
-                    return getattr(self._modules["original_component"], translated_name)
-                    # Try to get the attribute using the translated name
-                except ValueError:
-                    # If translation fails, continue to raise the original AttributeError
+                    # Get bytecode instructions of the current frame
+                    instructions = list(dis.get_instructions(frame.f_code))
+                    for instr in instructions:
+                        # Find next instruction after the current one (frame.f_lasti)
+                        if instr.offset > frame.f_lasti:
+                            # If the next instruction is a LOAD_ATTR and the attribute is weight or bias,
+                            # we want to return the original W_Q, not W_Q.weight or W_Q.bias
+                            if instr.opname == "LOAD_ATTR" and instr.argval in ["weight", "bias"]:
+                                return self._getattr_helper(name)
+                            break
+                except Exception:
                     pass
-                except AttributeError:
-                    # If translation fails, continue to raise the original AttributeError
-                    pass
-        return super().__getattr__(name)
-        # If we get here, the attribute wasn't found anywhere
-        # raise AttributeError(f"{type(self).__name__} has no attribute {name}")
+
+            # If we reach here, we can resolve the alias normally
+            resolved_property = resolve_alias(self, name, self.property_aliases)
+
+            if resolved_property is not None:
+                return resolved_property
+
+        # If an internal call or no alias was found, just regularly get the attribute
+        return self._getattr_helper(name)

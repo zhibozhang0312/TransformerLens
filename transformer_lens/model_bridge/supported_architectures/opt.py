@@ -11,8 +11,8 @@ from transformer_lens.model_bridge.generalized_components import (
     AttentionBridge,
     BlockBridge,
     EmbeddingBridge,
-    LayerNormBridge,
     MLPBridge,
+    NormalizationBridge,
     UnembeddingBridge,
 )
 
@@ -20,70 +20,60 @@ from transformer_lens.model_bridge.generalized_components import (
 class OptArchitectureAdapter(ArchitectureAdapter):
     """Architecture adapter for OPT models."""
 
-    def __init__(self, user_cfg: Any) -> None:
+    def __init__(self, cfg: Any) -> None:
         """Initialize the OPT architecture adapter."""
-        super().__init__(user_cfg)
+        super().__init__(cfg)
 
         self.conversion_rules = WeightConversionSet(
             {
-                "embed.W_E": "model.decoder.embed_tokens.weight",
-                "pos_embed.W_pos": "model.decoder.embed_positions.weight",
+                "embed.e": "model.decoder.embed_tokens.weight",
+                "pos_embed.pos": "model.decoder.embed_positions.weight",
                 "blocks.{i}.ln1.w": "model.decoder.layers.{i}.self_attn_layer_norm.weight",
                 "blocks.{i}.ln1.b": "model.decoder.layers.{i}.self_attn_layer_norm.bias",
-                "blocks.{i}.attn.W_Q": (
+                "blocks.{i}.attn.q": (
                     "model.decoder.layers.{i}.self_attn.q_proj.weight",
-                    RearrangeWeightConversion("d_model (h d_head) -> h d_head d_model"),
+                    RearrangeWeightConversion("(n h) m -> n m h", n=self.cfg.num_attention_heads),
                 ),
-                "blocks.{i}.attn.W_K": (
+                "blocks.{i}.attn.k": (
                     "model.decoder.layers.{i}.self_attn.k_proj.weight",
-                    RearrangeWeightConversion("d_model (h d_head) -> h d_head d_model"),
+                    RearrangeWeightConversion("(n h) m -> n m h", n=self.cfg.num_attention_heads),
                 ),
-                "blocks.{i}.attn.W_V": (
+                "blocks.{i}.attn.v": (
                     "model.decoder.layers.{i}.self_attn.v_proj.weight",
-                    RearrangeWeightConversion("d_model (h d_head) -> h d_head d_model"),
+                    RearrangeWeightConversion("(n h) m -> n m h", n=self.cfg.num_attention_heads),
                 ),
-                "blocks.{i}.attn.b_Q": (
-                    "model.decoder.layers.{i}.self_attn.q_proj.bias",
-                    RearrangeWeightConversion("(h d_head) -> h d_head"),
-                ),
-                "blocks.{i}.attn.b_K": (
-                    "model.decoder.layers.{i}.self_attn.k_proj.bias",
-                    RearrangeWeightConversion("(h d_head) -> h d_head"),
-                ),
-                "blocks.{i}.attn.b_V": (
-                    "model.decoder.layers.{i}.self_attn.v_proj.bias",
-                    RearrangeWeightConversion("(h d_head) -> h d_head"),
-                ),
-                "blocks.{i}.attn.W_O": (
+                "blocks.{i}.attn.o": (
                     "model.decoder.layers.{i}.self_attn.out_proj.weight",
-                    RearrangeWeightConversion("d_model (h d_head) -> h d_head d_model"),
+                    RearrangeWeightConversion("m (n h) -> n h m", n=self.cfg.num_attention_heads),
                 ),
+                "blocks.{i}.attn.b_Q": "model.decoder.layers.{i}.self_attn.q_proj.bias",
+                "blocks.{i}.attn.b_K": "model.decoder.layers.{i}.self_attn.k_proj.bias",
+                "blocks.{i}.attn.b_V": "model.decoder.layers.{i}.self_attn.v_proj.bias",
                 "blocks.{i}.attn.b_O": "model.decoder.layers.{i}.self_attn.out_proj.bias",
                 "blocks.{i}.ln2.w": "model.decoder.layers.{i}.final_layer_norm.weight",
                 "blocks.{i}.ln2.b": "model.decoder.layers.{i}.final_layer_norm.bias",
-                "blocks.{i}.mlp.W_in": "model.decoder.layers.{i}.fc1.weight",
+                "blocks.{i}.mlp.in": "model.decoder.layers.{i}.fc1.weight",
                 "blocks.{i}.mlp.b_in": "model.decoder.layers.{i}.fc1.bias",
-                "blocks.{i}.mlp.W_out": "model.decoder.layers.{i}.fc2.weight",
+                "blocks.{i}.mlp.out": "model.decoder.layers.{i}.fc2.weight",
                 "blocks.{i}.mlp.b_out": "model.decoder.layers.{i}.fc2.bias",
                 "ln_final.w": "model.decoder.final_layer_norm.weight",
                 "ln_final.b": "model.decoder.final_layer_norm.bias",
-                "unembed.W_U": "lm_head.weight",
+                "unembed.u": "lm_head.weight",
             }
         )
 
         self.component_mapping = {
-            "embed": ("model.decoder.embed_tokens", EmbeddingBridge),
-            "pos_embed": ("model.decoder.embed_positions", EmbeddingBridge),
-            "blocks": (
-                "model.decoder.layers",
-                BlockBridge,
-                {
-                    "ln1": ("self_attn_layer_norm", LayerNormBridge),
-                    "attn": ("self_attn", AttentionBridge),
-                    "ln2": ("final_layer_norm", LayerNormBridge),
-                    "mlp": ("mlp", MLPBridge),
+            "embed": EmbeddingBridge(name="model.decoder.embed_tokens"),
+            "pos_embed": EmbeddingBridge(name="model.decoder.embed_positions"),
+            "blocks": BlockBridge(
+                name="model.decoder.layers",
+                submodules={
+                    "ln1": NormalizationBridge(name="self_attn_layer_norm"),
+                    "attn": AttentionBridge(name="self_attn"),
+                    "ln2": NormalizationBridge(name="final_layer_norm"),
+                    "mlp": MLPBridge(name="mlp"),
                 },
             ),
-            "ln_final": ("model.decoder.final_layer_norm", LayerNormBridge),
-            "unembed": ("lm_head", UnembeddingBridge),
+            "ln_final": NormalizationBridge(name="model.decoder.final_layer_norm"),
+            "unembed": UnembeddingBridge(name="lm_head"),
         }

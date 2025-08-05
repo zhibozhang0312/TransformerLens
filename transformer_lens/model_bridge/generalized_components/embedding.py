@@ -3,13 +3,11 @@
 This module contains the bridge component for embedding layers.
 """
 
-from typing import Any
+import inspect
+from typing import Any, Dict, Optional
 
 import torch
-import torch.nn as nn
 
-from transformer_lens.hook_points import HookPoint
-from transformer_lens.model_bridge.architecture_adapter import ArchitectureAdapter
 from transformer_lens.model_bridge.generalized_components.base import (
     GeneralizedComponent,
 )
@@ -18,36 +16,46 @@ from transformer_lens.model_bridge.generalized_components.base import (
 class EmbeddingBridge(GeneralizedComponent):
     """Embedding bridge that wraps transformer embedding layers.
 
-    This component provides hook points for:
-    - Token embeddings
-    - Position embeddings
-    - Combined embeddings
+    This component provides standardized input/output hooks.
     """
+
+    hook_aliases = {
+        "hook_embed": "embed.hook_out",
+        "hook_pos_embed": "pos_embed.hook_out",
+    }
+
+    property_aliases = {
+        "W_E": "e.weight",
+        "W_pos": "pos.weight",
+    }
 
     def __init__(
         self,
-        original_component: nn.Module,
         name: str,
-        architecture_adapter: ArchitectureAdapter,
+        config: Optional[Any] = None,
+        submodules: Optional[Dict[str, GeneralizedComponent]] = {},
     ):
         """Initialize the embedding bridge.
 
         Args:
-            original_component: The original embedding component to wrap
             name: The name of this component
-            architecture_adapter: Optional architecture adapter for component-specific operations
+            config: Optional configuration (unused for EmbeddingBridge)
+            submodules: Dictionary of GeneralizedComponent submodules to register
         """
-        super().__init__(original_component, name, architecture_adapter)
+        super().__init__(name, config, submodules=submodules)
+        # No extra hooks; use only hook_in and hook_out
 
-        # Initialize hook points
-        self.hook_embed = HookPoint()  # Token embeddings
-        self.hook_pos = HookPoint()  # Position embeddings
-        self.hook_output = HookPoint()  # Combined embeddings
-
-        # Set hook names
-        self.hook_embed.name = f"{name}.embed"
-        self.hook_pos.name = f"{name}.pos"
-        self.hook_output.name = f"{name}.output"
+    @property
+    def W_E(self) -> torch.Tensor:
+        """Return the embedding weight matrix."""
+        if self.original_component is None:
+            raise RuntimeError(f"Original component not set for {self.name}")
+        assert hasattr(
+            self.original_component, "weight"
+        ), f"Component {self.name} has no weight attribute"
+        weight = self.original_component.weight
+        assert isinstance(weight, torch.Tensor), f"Weight is not a tensor for {self.name}"
+        return weight
 
     def forward(
         self,
@@ -65,21 +73,26 @@ class EmbeddingBridge(GeneralizedComponent):
         Returns:
             Embedded output
         """
-        # Forward through original component
-        # Remove position_ids if not supported
-        if (
-            not hasattr(self.original_component, "forward")
-            or "position_ids" not in self.original_component.forward.__code__.co_varnames
-        ):
+
+        if self.original_component is None:
+            raise RuntimeError(
+                f"Original component not set for {self.name}. Call set_original_component() first."
+            )
+
+        # Apply input hook
+        input_ids = self.hook_in(input_ids)
+
+        # Check if the original component supports position_ids using inspect.signature
+        sig = inspect.signature(self.original_component.forward)
+        supports_position_ids = "position_ids" in sig.parameters
+
+        if not hasattr(self.original_component, "forward") or not supports_position_ids:
             kwargs.pop("position_ids", None)
             output = self.original_component(input_ids, **kwargs)
         else:
             output = self.original_component(input_ids, position_ids=position_ids, **kwargs)
 
-        # Apply hook to final output
-        output = self.hook_output(output)
-
-        # Store hook outputs
-        self.hook_outputs.update({"output": output})
+        # Apply output hook
+        output = self.hook_out(output)
 
         return output

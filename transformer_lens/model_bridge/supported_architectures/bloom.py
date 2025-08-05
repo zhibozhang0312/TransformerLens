@@ -1,6 +1,8 @@
-"""BLOOM architecture adapter."""
+"""Bloom architecture adapter."""
 
 from typing import Any
+
+import torch
 
 from transformer_lens.model_bridge.architecture_adapter import ArchitectureAdapter
 from transformer_lens.model_bridge.conversion_utils.conversion_steps import (
@@ -8,85 +10,162 @@ from transformer_lens.model_bridge.conversion_utils.conversion_steps import (
     WeightConversionSet,
 )
 from transformer_lens.model_bridge.generalized_components import (
-    AttentionBridge,
     BlockBridge,
     EmbeddingBridge,
-    LayerNormBridge,
+    JointQKVAttentionBridge,
+    LinearBridge,
     MLPBridge,
+    NormalizationBridge,
     UnembeddingBridge,
 )
 
 
 class BloomArchitectureAdapter(ArchitectureAdapter):
-    """Architecture adapter for BLOOM models."""
+    """Architecture adapter for Bloom models."""
 
-    def __init__(self, user_cfg: Any) -> None:
+    def __init__(self, cfg: Any) -> None:
         """Initialize the Bloom architecture adapter."""
-        super().__init__(user_cfg)
+        super().__init__(cfg)
 
         self.conversion_rules = WeightConversionSet(
             {
-                "embed.W_E": "transformer.word_embeddings.weight",
-                "pos_embed.W_pos": "transformer.word_embeddings_layernorm.weight",
-                "embed.LayerNorm.weight": "transformer.word_embeddings_layernorm.weight",
-                "embed.LayerNorm.bias": "transformer.word_embeddings_layernorm.bias",
+                "embed.e": "transformer.word_embeddings.weight",
                 "blocks.{i}.ln1.w": "transformer.h.{i}.input_layernorm.weight",
                 "blocks.{i}.ln1.b": "transformer.h.{i}.input_layernorm.bias",
+                "blocks.{i}.attn.q": (
+                    "transformer.h.{i}.self_attention.query_key_value.weight",
+                    RearrangeWeightConversion(
+                        "(three n h) m -> three n m h",
+                        three=3,
+                        n=self.cfg.num_attention_heads,
+                    ),
+                ),
+                "blocks.{i}.attn.k": (
+                    "transformer.h.{i}.self_attention.query_key_value.weight",
+                    RearrangeWeightConversion(
+                        "(three n h) m -> three n m h",
+                        three=3,
+                        n=self.cfg.num_attention_heads,
+                    ),
+                ),
+                "blocks.{i}.attn.v": (
+                    "transformer.h.{i}.self_attention.query_key_value.weight",
+                    RearrangeWeightConversion(
+                        "(three n h) m -> three n m h",
+                        three=3,
+                        n=self.cfg.num_attention_heads,
+                    ),
+                ),
+                "blocks.{i}.attn.o": (
+                    "transformer.h.{i}.self_attention.dense.weight",
+                    RearrangeWeightConversion("m (n h) -> n h m", n=self.cfg.num_attention_heads),
+                ),
+                "blocks.{i}.attn.b_Q": "transformer.h.{i}.self_attention.query_key_value.bias",
+                "blocks.{i}.attn.b_K": "transformer.h.{i}.self_attention.query_key_value.bias",
+                "blocks.{i}.attn.b_V": "transformer.h.{i}.self_attention.query_key_value.bias",
+                "blocks.{i}.attn.b_O": "transformer.h.{i}.self_attention.dense.bias",
                 "blocks.{i}.ln2.w": "transformer.h.{i}.post_attention_layernorm.weight",
                 "blocks.{i}.ln2.b": "transformer.h.{i}.post_attention_layernorm.bias",
-                "blocks.{i}.attn.W_Q": (
-                    "transformer.h.{i}.self_attention.query_key_value.weight",
-                    RearrangeWeightConversion("(h d_head) d_model -> h d_head d_model"),
-                ),
-                "blocks.{i}.attn.W_K": (
-                    "transformer.h.{i}.self_attention.query_key_value.weight",
-                    RearrangeWeightConversion("(h d_head) d_model -> h d_head d_model"),
-                ),
-                "blocks.{i}.attn.W_V": (
-                    "transformer.h.{i}.self_attention.query_key_value.weight",
-                    RearrangeWeightConversion("(h d_head) d_model -> h d_head d_model"),
-                ),
-                "blocks.{i}.attn.b_Q": (
-                    "transformer.h.{i}.self_attention.query_key_value.bias",
-                    RearrangeWeightConversion("(h d_head) -> h d_head"),
-                ),
-                "blocks.{i}.attn.b_K": (
-                    "transformer.h.{i}.self_attention.query_key_value.bias",
-                    RearrangeWeightConversion("(h d_head) -> h d_head"),
-                ),
-                "blocks.{i}.attn.b_V": (
-                    "transformer.h.{i}.self_attention.query_key_value.bias",
-                    RearrangeWeightConversion("(h d_head) -> h d_head"),
-                ),
-                "blocks.{i}.attn.W_O": (
-                    "transformer.h.{i}.self_attention.dense.weight",
-                    RearrangeWeightConversion("d_model (h d_head) -> h d_head d_model"),
-                ),
-                "blocks.{i}.attn.b_O": "transformer.h.{i}.self_attention.dense.bias",
-                "blocks.{i}.mlp.W_in": "transformer.h.{i}.mlp.dense_h_to_4h.weight",
+                "blocks.{i}.mlp.in": "transformer.h.{i}.mlp.dense_h_to_4h.weight",
                 "blocks.{i}.mlp.b_in": "transformer.h.{i}.mlp.dense_h_to_4h.bias",
-                "blocks.{i}.mlp.W_out": "transformer.h.{i}.mlp.dense_4h_to_h.weight",
+                "blocks.{i}.mlp.out": "transformer.h.{i}.mlp.dense_4h_to_h.weight",
                 "blocks.{i}.mlp.b_out": "transformer.h.{i}.mlp.dense_4h_to_h.bias",
-                "unembed.W_U": "lm_head.weight",
-                "unembed.b_U": "lm_head.bias",
                 "ln_final.w": "transformer.ln_f.weight",
                 "ln_final.b": "transformer.ln_f.bias",
+                "unembed.u": "lm_head.weight",
             }
         )
 
-        # Set up component mapping
         self.component_mapping = {
-            "embed": ("transformer.word_embeddings", EmbeddingBridge),
-            "blocks": (
-                "transformer.h",
-                BlockBridge,
-                {
-                    "ln1": ("input_layernorm", LayerNormBridge),
-                    "ln2": ("post_attention_layernorm", LayerNormBridge),
-                    "attn": ("self_attention", AttentionBridge),
-                    "mlp": ("mlp", MLPBridge),
+            "embed": EmbeddingBridge(name="transformer.word_embeddings"),
+            "embed_ln": NormalizationBridge(name="transformer.word_embeddings_layernorm"),
+            "blocks": BlockBridge(
+                name="transformer.h",
+                submodules={
+                    "ln1": NormalizationBridge(name="input_layernorm"),
+                    "ln2": NormalizationBridge(name="post_attention_layernorm"),
+                    "attn": JointQKVAttentionBridge(
+                        name="self_attention",
+                        submodules={
+                            "qkv": LinearBridge(name="query_key_value"),
+                            "o": LinearBridge(name="dense"),
+                        },
+                        config={
+                            "split_qkv_matrix": self.split_qkv_matrix,
+                        },
+                    ),
+                    "mlp": MLPBridge(
+                        name="mlp",
+                        submodules={
+                            "in": LinearBridge(name="dense_h_to_4h"),
+                            "out": LinearBridge(name="dense_4h_to_h"),
+                        },
+                    ),
                 },
             ),
-            "ln_final": ("transformer.ln_f", LayerNormBridge),
-            "unembed": ("lm_head", UnembeddingBridge),
+            "ln_final": NormalizationBridge(name="transformer.ln_f"),
+            "unembed": UnembeddingBridge(name="lm_head"),
         }
+
+    def split_qkv_matrix(
+        self, attention_bridge: JointQKVAttentionBridge
+    ) -> tuple[torch.nn.Linear, torch.nn.Linear, torch.nn.Linear]:
+        """Split the QKV matrix into separate linear transformations.
+        Args:
+            attention_component: The original attention layer component
+        Returns:
+            Tuple of nn.Linear modules for Q, K, and V transformations
+        """
+
+        # Keep mypy happy
+        assert attention_bridge.original_component is not None
+        assert isinstance(attention_bridge.original_component.query_key_value, LinearBridge)
+        assert attention_bridge.original_component.query_key_value.original_component is not None
+
+        qkv_weights = attention_bridge.original_component.query_key_value.original_component.weight
+
+        # Keep mypy happy
+        assert isinstance(qkv_weights, torch.Tensor)
+
+        d_head = self.cfg.hidden_size // self.cfg.n_head
+
+        # Original qkv_weights shape: [3 * n_head * d_head, d_model]
+        # We want to split it into [d_model, n_head * d_head] for each of Q, K, V
+        W_split = qkv_weights.T.reshape(self.cfg.hidden_size, 3, self.cfg.n_head * d_head)
+
+        W_Q, W_K, W_V = W_split[:, 0, :], W_split[:, 1, :], W_split[:, 2, :]
+
+        qkv_bias = attention_bridge.original_component.query_key_value.original_component.bias
+
+        # Keep mypy happy
+        assert isinstance(qkv_bias, torch.Tensor)
+
+        # Original qkv_bias shape: [3 * n_head * d_head]
+        # Reshape to [3, n_head * d_head] to split by Q, K, V
+        qkv_bias = qkv_bias.reshape(3, self.cfg.n_head * d_head)
+
+        b_Q, b_K, b_V = qkv_bias[0, :], qkv_bias[1, :], qkv_bias[2, :]
+
+        # Create nn.Linear modules
+        # W_Q, W_K, W_V shapes are [d_model, n_head * d_head]
+        # nn.Linear expects weight shape [out_features, in_features]
+        # So for Linear(d_model, n_head * d_head), weight should be [n_head * d_head, d_model]
+        W_Q_transformation = torch.nn.Linear(W_Q.shape[0], W_Q.shape[1], bias=True)
+        W_Q_transformation.weight = torch.nn.Parameter(
+            W_Q.T
+        )  # Transpose to [n_head * d_head, d_model]
+        W_Q_transformation.bias = torch.nn.Parameter(b_Q)
+
+        W_K_transformation = torch.nn.Linear(W_K.shape[0], W_K.shape[1], bias=True)
+        W_K_transformation.weight = torch.nn.Parameter(
+            W_K.T
+        )  # Transpose to [n_head * d_head, d_model]
+        W_K_transformation.bias = torch.nn.Parameter(b_K)
+
+        W_V_transformation = torch.nn.Linear(W_V.shape[0], W_V.shape[1], bias=True)
+        W_V_transformation.weight = torch.nn.Parameter(
+            W_V.T
+        )  # Transpose to [n_head * d_head, d_model]
+        W_V_transformation.bias = torch.nn.Parameter(b_V)
+
+        return W_Q_transformation, W_K_transformation, W_V_transformation
