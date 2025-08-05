@@ -3,19 +3,20 @@
 This module contains the base class for architecture adapters that map between different model architectures.
 """
 
-from typing import Any
+from typing import Any, cast
 
 import torch
-from transformers.modeling_utils import PreTrainedModel
+from torch import nn
 
 from transformer_lens.model_bridge.conversion_utils.conversion_steps import (
     WeightConversionSet,
 )
+from transformer_lens.model_bridge.generalized_components.base import (
+    GeneralizedComponent,
+)
 from transformer_lens.model_bridge.types import (
-    BlockMapping,
     ComponentMapping,
     RemoteComponent,
-    RemoteImport,
     RemoteModel,
     RemotePath,
     TransformerLensPath,
@@ -30,13 +31,13 @@ class ArchitectureAdapter:
     (for initializing weights from one format to another).
     """
 
-    def __init__(self, user_cfg: Any) -> None:
+    def __init__(self, cfg: Any) -> None:
         """Initialize the architecture adapter.
 
         Args:
-            user_cfg: The user-provided configuration object.
+            cfg: The user-provided configuration object.
         """
-        self.user_cfg = user_cfg
+        self.cfg = cfg
         self.default_cfg: dict[str, Any] = {}
         self.component_mapping: ComponentMapping | None = None
         self.conversion_rules: WeightConversionSet | None = None
@@ -88,6 +89,7 @@ class ArchitectureAdapter:
             >>> # adapter.get_remote_component(model, "model.layers.0.ln1")
             >>> # <LayerNorm>
         """
+
         current = model
         for part in path.split("."):
             if part.isdigit():
@@ -96,85 +98,77 @@ class ArchitectureAdapter:
                 current = getattr(current, part)
         return current
 
-    def translate_transformer_lens_path(
-        self, path: TransformerLensPath, last_component_only: bool = False
-    ) -> RemotePath:
-        """Translate a TransformerLens path to its corresponding Remote path.
-
+    def get_component_from_list_module(
+        self,
+        list_module: RemoteComponent,
+        bridge_component: GeneralizedComponent,
+        parts: list[str],
+    ) -> RemoteComponent:
+        """Get a component from a list module using the bridge component and the transformer lens path.
         Args:
-            path: The TransformerLens path to translate (e.g. "blocks.0.ln1")
-            last_component_only: If True, only return the last component of the path (e.g. "input_layernorm")
-
+            list_module: The remote list module to get the component from
+            bridge_component: The bridge component
+            parts: The parts of the transformer lens path to navigate
         Returns:
-            The corresponding Remote path (e.g. "model.layers.0.input_layernorm" or just "input_layernorm")
-
-        Raises:
-            ValueError: If the component mapping is not set or if the path is invalid
-            KeyError: If the path is not found in the component mapping.
+            The requested component from the list module described by the path
         """
-        component_mapping = self.get_component_mapping()
-        parts = path.split(".")
-        if not parts:
-            raise ValueError("Empty path")
 
-        # First part should be a top-level component
-        if parts[0] not in component_mapping:
-            raise ValueError(f"Component {parts[0]} not found in component mapping")
+        # Handle list item indexing (like blocks)
+        item_index = parts[1]
+        if not item_index.isdigit():
+            raise ValueError(f"Expected item index, got {item_index}")
 
-        full_path = self._resolve_component_path(parts[1:], component_mapping[parts[0]])
+        if not hasattr(list_module, "__getitem__"):
+            raise TypeError(f"Component {bridge_component.name} is not indexable")
 
-        if last_component_only:
-            # Split the path and return only the last component
-            return full_path.split(".")[-1]
+        # Cast to indicate to mypy that list_module is indexable after the check
+        indexable_container = cast(Any, list_module)
+        item = indexable_container[int(item_index)]
 
-        return full_path
-
-    def _resolve_component_path(
-        self, parts: list[str], mapping: RemoteImport | BlockMapping
-    ) -> RemotePath:
-        """Recursively resolve a component path to its remote path.
-
-        Args:
-            parts: List of path components to resolve
-            mapping: Current level of component mapping (either RemoteImport or BlockMapping)
-
-        Returns:
-            The resolved remote path
-
-        Raises:
-            ValueError: If the path is invalid or component not found
-        """
-        if not parts:
-            # For both RemoteImport and BlockMapping, return the base path
-            return mapping[0]  # Return the base path (first element of tuple)
-
-        if len(mapping) == 2:
-            # This is a RemoteImport (path, bridge_type)
-            base_path, _ = mapping
-            return f"{base_path}.{'.'.join(parts)}"
-        elif len(mapping) == 3:
-            # This is a BlockMapping (path, bridge_type, sub_mapping)
-            base_path, _, sub_mapping = mapping
+        if len(parts) == 2:
+            # Just return the item
+            return item
         else:
-            raise ValueError(f"Invalid mapping structure: {mapping}")
+            # Get subcomponent from the item using bridge mapping
+            subcomponent_name = parts[2]
 
-        # Handle BlockMapping case
-        idx = parts[0]
-        if not idx.isdigit():
-            raise ValueError(f"Expected index, got {idx}")
-        if len(parts) == 1:
-            return f"{base_path}.{idx}"
+            # Check the submodules attribute for bridge submodules
+            if subcomponent_name in bridge_component.submodules:
+                subcomponent_bridge = bridge_component.submodules[subcomponent_name]
 
-        # If next part is a subcomponent, look it up in sub_mapping
-        sub_name = parts[1]
-        if sub_name not in sub_mapping:
-            raise ValueError(f"Component {sub_name} not found in blocks components")
-        sub_map = sub_mapping[sub_name]
+                # If there are more parts (like blocks.0.attn.W_Q), navigate deeper
+                if len(parts) > 3:
+                    # Navigate through the deeper subcomponents
+                    current_bridge = subcomponent_bridge
+                    current = getattr(item, subcomponent_bridge.name)
 
-        # If there are more parts, recurse into sub_map
-        if len(parts) > 2:
-            return self._resolve_component_path(parts[2:], sub_map)
-        return f"{base_path}.{idx}.{sub_map[0]}"  # Use first element (path) from RemoteImport
+                    for i in range(3, len(parts)):
+                        deeper_component_name = parts[i]
+
+                        if deeper_component_name.isdigit() and current_bridge.is_list_item:
+                            # We are dealing with a nested BlockBridge, call the function recursively
+                            # and pass the path (parts) starting from the nested BlockBridge
+                            return self.get_component_from_list_module(
+                                current, current_bridge, parts[i - 1 :]
+                            )
+
+                        # Check submodules for deeper components
+                        if deeper_component_name in current_bridge.submodules:
+                            current_bridge = current_bridge.submodules[deeper_component_name]
+                            current = getattr(current, current_bridge.name)
+                        else:
+                            raise ValueError(
+                                f"Component {deeper_component_name} not found in {'.'.join(parts[:i])} components"
+                            )
+
+                    return current
+                else:
+                    # Just the 3-level path
+                    return getattr(item, subcomponent_bridge.name)
+            else:
+                raise ValueError(
+                    f"Component {subcomponent_name} not found in {parts[0]} components"
+                )
 
     def get_component(self, model: RemoteModel, path: TransformerLensPath) -> RemoteComponent:
         """Get a component from the model using the component_mapping.
@@ -210,11 +204,139 @@ class ArchitectureAdapter:
         if self.component_mapping is None:
             raise ValueError("component_mapping must be set before calling get_component")
 
-        # Get the remote path and then get the component
-        remote_path = self.translate_transformer_lens_path(path)
+        # In the new system, we get the bridge component from the mapping
+        # and use its name attribute to get the remote component
+        parts = path.split(".")
+        if not parts:
+            raise ValueError("Empty path")
+
+        # Get the top-level component from the mapping
+        if parts[0] not in self.component_mapping:
+            raise ValueError(f"Component {parts[0]} not found in component mapping")
+
+        bridge_component = self.component_mapping[parts[0]]
+
+        if len(parts) == 1:
+            # Simple case: just return the component at the bridge's remote path
+            return self.get_remote_component(model, bridge_component.name)
+
+        # For nested paths like "blocks.0.attn", we need to handle the indexing
+        if bridge_component.is_list_item and len(parts) >= 2:
+            # Get the remote ModuleList for the indexed item
+            list_module = self.get_remote_component(model, bridge_component.name)
+            return self.get_component_from_list_module(list_module, bridge_component, parts)
+
+        # For other nested paths, navigate through the remote model
+        remote_path = bridge_component.name
+        if len(parts) > 1:
+            remote_path = f"{remote_path}.{'.'.join(parts[1:])}"
+
         return self.get_remote_component(model, remote_path)
 
-    def convert_weights(self, hf_model: PreTrainedModel) -> dict[str, torch.Tensor]:
+    def translate_transformer_lens_path(
+        self, path: TransformerLensPath, last_component_only: bool = False
+    ) -> RemotePath:
+        """Translate a TransformerLens path to a remote model path.
+
+        Args:
+            path: The TransformerLens path to translate
+            last_component_only: If True, return only the last component of the path
+
+        Returns:
+            The corresponding remote model path
+
+        Raises:
+            ValueError: If the path is not found in the component mapping
+        """
+        if self.component_mapping is None:
+            raise ValueError(
+                "component_mapping must be set before calling translate_transformer_lens_path"
+            )
+
+        parts = path.split(".")
+        if not parts:
+            raise ValueError("Empty path")
+
+        # Get the top-level component from the mapping
+        if parts[0] not in self.component_mapping:
+            raise ValueError(f"Component {parts[0]} not found in component mapping")
+
+        bridge_component = self.component_mapping[parts[0]]
+
+        if len(parts) == 1:
+            # Simple case: just return the bridge's remote path
+            remote_path = bridge_component.name
+            if last_component_only:
+                return remote_path.split(".")[-1]
+            return remote_path
+
+        # For nested paths like "blocks.0.attn", we need to handle the indexing
+        if bridge_component.is_list_item and len(parts) >= 2:
+            # Handle list item indexing (like blocks)
+            item_index = parts[1]
+            if not item_index.isdigit():
+                raise ValueError(f"Expected item index, got {item_index}")
+
+            # Get the base items path
+            items_path = bridge_component.name
+
+            if len(parts) == 2:
+                # Just return the indexed item path
+                remote_path = f"{items_path}.{item_index}"
+                if last_component_only:
+                    return item_index
+                return remote_path
+            else:
+                # Get subcomponent from the item bridge
+                subcomponent_name = parts[2]
+
+                # Check the submodules attribute for bridge submodules
+                if subcomponent_name in bridge_component.submodules:
+                    subcomponent_bridge = bridge_component.submodules[subcomponent_name]
+
+                    # If there are more parts (like blocks.0.attn.q_proj), navigate deeper
+                    if len(parts) > 3:
+                        # Navigate through the deeper subcomponents
+                        current_bridge = subcomponent_bridge
+                        remote_path_parts = [items_path, item_index, subcomponent_bridge.name]
+
+                        for i in range(3, len(parts)):
+                            deeper_component_name = parts[i]
+
+                            # Check submodules for deeper components
+                            if deeper_component_name in current_bridge.submodules:
+                                current_bridge = current_bridge.submodules[deeper_component_name]
+                                remote_path_parts.append(current_bridge.name)
+                            else:
+                                raise ValueError(
+                                    f"Component {deeper_component_name} not found in {'.'.join(parts[:i])} components"
+                                )
+
+                        remote_path = ".".join(remote_path_parts)
+                        if last_component_only:
+                            return current_bridge.name
+                        return remote_path
+                    else:
+                        # Just the 3-level path
+                        remote_path = f"{items_path}.{item_index}.{subcomponent_bridge.name}"
+                        if last_component_only:
+                            return subcomponent_bridge.name
+                        return remote_path
+                else:
+                    raise ValueError(
+                        f"Component {subcomponent_name} not found in {parts[0]} components"
+                    )
+
+        # For other nested paths, navigate through the bridge components
+        remote_path = bridge_component.name
+        if len(parts) > 1:
+            remote_path = f"{remote_path}.{'.'.join(parts[1:])}"
+
+        if last_component_only:
+            return remote_path.split(".")[-1]
+        return remote_path
+
+    def convert_weights(self, hf_model: nn.Module) -> dict[str, torch.Tensor]:
         """Convert the weights from the HuggingFace format to the HookedTransformer format.
 
         Args:
@@ -225,39 +347,47 @@ class ArchitectureAdapter:
         """
         if self.conversion_rules is None:
             raise ValueError("conversion_rules must be set before calling convert_weights")
-        return self.conversion_rules.convert(input_value=hf_model)
+        state_dict = self.conversion_rules.convert(input_value=hf_model)
 
-    def get_remote_path_and_type(self, tl_path: str) -> RemoteImport:
-        """Get the remote path and type for a given TransformerLens path.
+        # Flatten state dictionary such that PyTorch can load it properly
+        flattened_state_dict = self.flatten_nested_dict(state_dict)
+        return flattened_state_dict
+
+    def flatten_nested_dict(
+        self,
+        input: dict[str, torch.Tensor] | list[Any] | torch.Tensor,
+        parent_key: str = "",
+        sep: str = ".",
+    ) -> dict[str, torch.Tensor]:
+        """
+        Flattens a nested dictionary/list structure into a flat dictionary with dot notation.
 
         Args:
-            tl_path: The TransformerLens path (e.g., "blocks.0.attn")
+            input: The input structure (can be dict, list, or a value)
+            parent_key: The parent key for the current item (used in recursion)
+            sep: Separator to use between nested keys (default '.')
 
         Returns:
-            A tuple of (remote_path, remote_type)
-
-        Raises:
-            KeyError: If the path is not found in the component mapping.
+            dict: Flattened dictionary with dot notation keys
         """
-        current_mapping = self.get_component_mapping()
-        path_parts = tl_path.split(".")
-        for i, part in enumerate(path_parts):
-            assert isinstance(current_mapping, dict)
-            if part not in current_mapping:
-                raise KeyError(f"Path {tl_path} not found in component_mapping.")
-            entry = current_mapping[part]
-            if isinstance(entry, tuple) and len(entry) == 3:  # BlockMapping
-                if i == len(path_parts) - 1:
-                    # We are at the block itself
-                    return entry[0], entry[1]
+        items = {}
+
+        if isinstance(input, dict):
+            for k, v in input.items():
+                new_key = f"{parent_key}{sep}{k}" if parent_key else k
+                if isinstance(v, (dict, list)):
+                    items.update(self.flatten_nested_dict(v, new_key, sep=sep))
                 else:
-                    # We are descending into a block
-                    current_mapping = entry[2]
-                    assert isinstance(current_mapping, dict)
-            elif isinstance(entry, tuple) and len(entry) == 2:  # RemoteImport
-                if i != len(path_parts) - 1:
-                    raise KeyError(f"Path {tl_path} is too long.")
-                return entry
-            else:
-                raise TypeError(f"Invalid entry in component_mapping: {entry}")
-        raise KeyError(f"Path {tl_path} not found in component_mapping.")
+                    items[new_key] = v
+
+        elif isinstance(input, list):
+            for i, v in enumerate(input):
+                new_key = f"{parent_key}{sep}{i}" if parent_key else str(i)
+                if isinstance(v, (dict, list)):
+                    items.update(self.flatten_nested_dict(v, new_key, sep=sep))
+                else:
+                    items[new_key] = v
+        else:
+            items[parent_key] = input
+
+        return items

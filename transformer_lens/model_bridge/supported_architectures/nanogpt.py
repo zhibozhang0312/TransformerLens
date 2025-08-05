@@ -9,9 +9,10 @@ from transformer_lens.model_bridge.conversion_utils.conversion_steps import (
 )
 from transformer_lens.model_bridge.generalized_components import (
     AttentionBridge,
+    BlockBridge,
     EmbeddingBridge,
-    LayerNormBridge,
     MLPBridge,
+    NormalizationBridge,
     UnembeddingBridge,
 )
 
@@ -19,35 +20,35 @@ from transformer_lens.model_bridge.generalized_components import (
 class NanogptArchitectureAdapter(ArchitectureAdapter):
     """Architecture adapter for NanoGPT models."""
 
-    def __init__(self, user_cfg: Any) -> None:
+    def __init__(self, cfg: Any) -> None:
         """Initialize the NanoGPT architecture adapter.
 
         Args:
-            user_cfg: The configuration object.
+            cfg: The configuration object.
         """
-        super().__init__(user_cfg)
+        super().__init__(cfg)
 
         self.conversion_rules = WeightConversionSet(
             {
-                "pos_embed.W_pos": "transformer.wpe.weight",
-                "embed.W_E": "transformer.wte.weight",
+                "pos_embed.pos": "transformer.wpe.weight",
+                "embed.e": "transformer.wte.weight",
                 "blocks.{i}.ln1.w": "transformer.h.{i}.ln_1.weight",
                 "blocks.{i}.ln1.b": "transformer.h.{i}.ln_1.bias",
                 "blocks.{i}.ln2.w": "transformer.h.{i}.ln_2.weight",
                 "blocks.{i}.ln2.b": "transformer.h.{i}.ln_2.bias",
-                "blocks.{i}.attn.W_Q": (
+                "blocks.{i}.attn.q": (
                     "transformer.h.{i}.attn.c_attn.weight",
                     RearrangeWeightConversion(
                         "d_model (3 n_head d_head) -> 3 n_head d_head d_model"
                     ),
                 ),
-                "blocks.{i}.attn.W_K": (
+                "blocks.{i}.attn.k": (
                     "transformer.h.{i}.attn.c_attn.weight",
                     RearrangeWeightConversion(
                         "d_model (3 n_head d_head) -> 3 n_head d_head d_model"
                     ),
                 ),
-                "blocks.{i}.attn.W_V": (
+                "blocks.{i}.attn.v": (
                     "transformer.h.{i}.attn.c_attn.weight",
                     RearrangeWeightConversion(
                         "d_model (3 n_head d_head) -> 3 n_head d_head d_model"
@@ -65,16 +66,16 @@ class NanogptArchitectureAdapter(ArchitectureAdapter):
                     "transformer.h.{i}.attn.c_attn.bias",
                     RearrangeWeightConversion("(3 n_head d_head) -> 3 n_head d_head"),
                 ),
-                "blocks.{i}.attn.W_O": (
+                "blocks.{i}.attn.o": (
                     "transformer.h.{i}.attn.c_proj.weight",
                     RearrangeWeightConversion("d_model (n_head d_head) -> n_head d_head d_model"),
                 ),
                 "blocks.{i}.attn.b_O": "transformer.h.{i}.attn.c_proj.bias",
-                "blocks.{i}.mlp.W_in": "transformer.h.{i}.mlp.c_fc.weight",
+                "blocks.{i}.mlp.in": "transformer.h.{i}.mlp.c_fc.weight",
                 "blocks.{i}.mlp.b_in": "transformer.h.{i}.mlp.c_fc.bias",
-                "blocks.{i}.mlp.W_out": "transformer.h.{i}.mlp.c_proj.weight",
+                "blocks.{i}.mlp.out": "transformer.h.{i}.mlp.c_proj.weight",
                 "blocks.{i}.mlp.b_out": "transformer.h.{i}.mlp.c_proj.bias",
-                "unembed.W_U": "lm_head.weight",
+                "unembed.u": "lm_head.weight",
                 "unembed.b_U": "lm_head.bias",
                 "ln_final.w": "transformer.ln_f.weight",
                 "ln_final.b": "transformer.ln_f.bias",
@@ -83,20 +84,19 @@ class NanogptArchitectureAdapter(ArchitectureAdapter):
 
         # Set up component mapping
         self.component_mapping = {
-            "embed": ("transformer.wte", EmbeddingBridge),  # Word token embeddings
-            "pos_embed": ("transformer.wpe", EmbeddingBridge),  # Positional embeddings
-            "blocks": (
-                "transformer.h",  # Base path for blocks
-                AttentionBridge,
-                {
-                    "ln1": ("ln_1", LayerNormBridge),  # Pre-attention layer norm
-                    "ln2": ("ln_2", LayerNormBridge),  # Pre-MLP layer norm
-                    "attn": ("attn", AttentionBridge),  # Full attention module
-                    "mlp": ("mlp", MLPBridge),  # Full MLP module
+            "embed": EmbeddingBridge(name="transformer.wte"),  # Word token embeddings
+            "pos_embed": EmbeddingBridge(name="transformer.wpe"),  # Positional embeddings
+            "blocks": BlockBridge(
+                name="transformer.h",  # Base path for blocks
+                submodules={
+                    "ln1": NormalizationBridge(name="ln_1"),  # Pre-attention layer norm
+                    "ln2": NormalizationBridge(name="ln_2"),  # Pre-MLP layer norm
+                    "attn": AttentionBridge(name="attn"),  # Full attention module
+                    "mlp": MLPBridge(name="mlp"),  # Full MLP module
                 },
             ),
-            "ln_final": ("transformer.ln_f", LayerNormBridge),  # Final layer norm
-            "unembed": ("lm_head", UnembeddingBridge),  # Language model head
+            "ln_final": NormalizationBridge(name="transformer.ln_f"),  # Final layer norm
+            "unembed": UnembeddingBridge(name="lm_head"),  # Language model head
         }
 
     def convert_weights(self, remote_module: Any) -> dict[str, torch.Tensor]:

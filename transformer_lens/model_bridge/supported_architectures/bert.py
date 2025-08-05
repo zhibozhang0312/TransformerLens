@@ -14,8 +14,8 @@ from transformer_lens.model_bridge.generalized_components import (
     AttentionBridge,
     BlockBridge,
     EmbeddingBridge,
-    LayerNormBridge,
     MLPBridge,
+    NormalizationBridge,
     UnembeddingBridge,
 )
 
@@ -23,18 +23,18 @@ from transformer_lens.model_bridge.generalized_components import (
 class BertArchitectureAdapter(ArchitectureAdapter):
     """Architecture adapter for BERT models."""
 
-    def __init__(self, user_cfg: Any) -> None:
+    def __init__(self, cfg: Any) -> None:
         """Initialize the BERT architecture adapter.
 
         Args:
-            user_cfg: The configuration object.
+            cfg: The configuration object.
         """
-        super().__init__(user_cfg)
+        super().__init__(cfg)
 
         self.conversion_rules = WeightConversionSet(
             {
-                "embed.W_E": "bert.embeddings.word_embeddings.weight",
-                "pos_embed.W_pos": "bert.embeddings.position_embeddings.weight",
+                "embed.e": "bert.embeddings.word_embeddings.weight",
+                "pos_embed.pos": "bert.embeddings.position_embeddings.weight",
                 "embed.token_type_embeddings": "bert.embeddings.token_type_embeddings.weight",
                 "embed.LayerNorm.weight": "bert.embeddings.LayerNorm.weight",
                 "embed.LayerNorm.bias": "bert.embeddings.LayerNorm.bias",
@@ -42,15 +42,15 @@ class BertArchitectureAdapter(ArchitectureAdapter):
                 "blocks.{i}.ln1.b": "bert.encoder.layer.{i}.attention.output.LayerNorm.bias",
                 "blocks.{i}.ln2.w": "bert.encoder.layer.{i}.output.LayerNorm.weight",
                 "blocks.{i}.ln2.b": "bert.encoder.layer.{i}.output.LayerNorm.bias",
-                "blocks.{i}.attn.W_Q": (
+                "blocks.{i}.attn.q": (
                     "bert.encoder.layer.{i}.attention.self.query.weight",
                     RearrangeWeightConversion("(h d_head) d_model -> h d_head d_model"),
                 ),
-                "blocks.{i}.attn.W_K": (
+                "blocks.{i}.attn.k": (
                     "bert.encoder.layer.{i}.attention.self.key.weight",
                     RearrangeWeightConversion("(h d_head) d_model -> h d_head d_model"),
                 ),
-                "blocks.{i}.attn.W_V": (
+                "blocks.{i}.attn.v": (
                     "bert.encoder.layer.{i}.attention.self.value.weight",
                     RearrangeWeightConversion("(h d_head) d_model -> h d_head d_model"),
                 ),
@@ -66,18 +66,18 @@ class BertArchitectureAdapter(ArchitectureAdapter):
                     "bert.encoder.layer.{i}.attention.self.value.bias",
                     RearrangeWeightConversion("(h d_head) -> h d_head"),
                 ),
-                "blocks.{i}.attn.W_O": (
+                "blocks.{i}.attn.o": (
                     "bert.encoder.layer.{i}.attention.output.dense.weight",
                     RearrangeWeightConversion("d_model (h d_head) -> h d_head d_model"),
                 ),
                 "blocks.{i}.attn.b_O": "bert.encoder.layer.{i}.attention.output.dense.bias",
-                "blocks.{i}.mlp.W_in": "bert.encoder.layer.{i}.intermediate.dense.weight",
+                "blocks.{i}.mlp.in": "bert.encoder.layer.{i}.intermediate.dense.weight",
                 "blocks.{i}.mlp.b_in": "bert.encoder.layer.{i}.intermediate.dense.bias",
-                "blocks.{i}.mlp.W_out": "bert.encoder.layer.{i}.output.dense.weight",
+                "blocks.{i}.mlp.out": "bert.encoder.layer.{i}.output.dense.weight",
                 "blocks.{i}.mlp.b_out": "bert.encoder.layer.{i}.output.dense.bias",
                 "ln_final.w": "bert.pooler.dense.weight",
                 "ln_final.b": "bert.pooler.dense.bias",
-                "unembed.W_U": "cls.predictions.transform.dense.weight",
+                "unembed.u": "cls.predictions.transform.dense.weight",
                 "unembed.b_U": "cls.predictions.transform.dense.bias",
                 "unembed.LayerNorm.weight": "cls.predictions.transform.LayerNorm.weight",
                 "unembed.LayerNorm.bias": "cls.predictions.transform.LayerNorm.bias",
@@ -88,19 +88,17 @@ class BertArchitectureAdapter(ArchitectureAdapter):
 
         # Set up component mapping
         self.component_mapping = {
-            "embed": ("bert.embeddings", EmbeddingBridge),
-            "pos_embed": ("bert.embeddings.position_embeddings", EmbeddingBridge),
-            "blocks": (
-                "bert.encoder.layer",
-                BlockBridge,
-                {
-                    "ln1": ("attention.output.LayerNorm", LayerNormBridge),
-                    "ln2": ("output.LayerNorm", LayerNormBridge),
-                    "attn": ("attention", AttentionBridge),
-                    "mlp": ("intermediate", MLPBridge),
+            "embed": EmbeddingBridge(name="bert.embeddings"),
+            "pos_embed": EmbeddingBridge(name="bert.embeddings.position_embeddings"),
+            "blocks": BlockBridge(
+                name="bert.encoder.layer",
+                submodules={
+                    "ln1": NormalizationBridge(name="attention.output.LayerNorm"),
+                    "ln2": NormalizationBridge(name="output.LayerNorm"),
+                    "attn": AttentionBridge(name="attention"),
+                    "mlp": MLPBridge(name="intermediate"),
                 },
             ),
-            "unembed": ("cls.predictions", UnembeddingBridge),
+            "unembed": UnembeddingBridge(name="cls.predictions"),
+            "ln_final": NormalizationBridge(name="bert.pooler.dense"),
         }
-        if hasattr(self.user_cfg, "add_pooling_layer") and self.user_cfg.add_pooling_layer:
-            self.component_mapping["ln_final"] = ("bert.pooler.dense", LayerNormBridge)

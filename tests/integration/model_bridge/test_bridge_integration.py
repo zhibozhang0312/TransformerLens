@@ -7,23 +7,27 @@ including model initialization, text generation, hooks, and caching.
 import pytest
 import torch
 
-from transformer_lens.boot import boot
+from transformer_lens.ActivationCache import ActivationCache
+from transformer_lens.model_bridge import TransformerBridge
 
 
 def test_model_initialization():
     """Test that the model can be initialized correctly."""
     model_name = "gpt2"  # Use a smaller model for testing
-    bridge = boot(model_name)
+    bridge = TransformerBridge.boot_transformers(model_name)
 
     assert bridge is not None, "Bridge should be initialized"
     assert bridge.tokenizer is not None, "Tokenizer should be initialized"
-    assert isinstance(bridge.model, torch.nn.Module), "Model should be a PyTorch module"
+    assert isinstance(bridge.original_model, torch.nn.Module), "Model should be a PyTorch module"
 
 
 def test_text_generation():
     """Test basic text generation functionality."""
     model_name = "gpt2"  # Use a smaller model for testing
-    bridge = boot(model_name)
+    bridge = TransformerBridge.boot_transformers(model_name)
+
+    if bridge.tokenizer.pad_token is None:
+        bridge.tokenizer.pad_token = bridge.tokenizer.eos_token
 
     prompt = "The quick brown fox jumps over the lazy dog"
     output = bridge.generate(prompt, max_new_tokens=10)
@@ -35,7 +39,10 @@ def test_text_generation():
 def test_hooks():
     """Test that hooks can be added and removed correctly."""
     model_name = "gpt2"  # Use a smaller model for testing
-    bridge = boot(model_name)
+    bridge = TransformerBridge.boot_transformers(model_name)
+
+    if bridge.tokenizer.pad_token is None:
+        bridge.tokenizer.pad_token = bridge.tokenizer.eos_token
 
     # Track if hook was called
     hook_called = False
@@ -70,22 +77,27 @@ def test_hooks():
 def test_cache():
     """Test that the cache functionality works correctly."""
     model_name = "gpt2"  # Use a smaller model for testing
-    bridge = boot(model_name)
+    bridge = TransformerBridge.boot_transformers(model_name)
+
+    if bridge.tokenizer.pad_token is None:
+        bridge.tokenizer.pad_token = bridge.tokenizer.eos_token
 
     prompt = "Test prompt"
     output, cache = bridge.run_with_cache(prompt)
 
     # Verify output and cache
     assert isinstance(output, torch.Tensor), "Output should be a tensor"
-    assert isinstance(cache, dict), "Cache should be a dictionary"
+    assert isinstance(cache, ActivationCache), "Cache should be an ActivationCache object"
     assert len(cache) > 0, "Cache should contain activations"
 
-    # Verify cache contains some expected keys (using actual HuggingFace model structure)
+    # Verify cache contains some expected keys (using TransformerLens naming convention)
     # The exact keys depend on the model architecture, but we should have some basic ones
     cache_keys = list(cache.keys())
-    assert any("wte" in key for key in cache_keys), "Cache should contain word token embeddings"
-    assert any("ln_f" in key for key in cache_keys), "Cache should contain final layer norm"
-    assert any("lm_head" in key for key in cache_keys), "Cache should contain language model head"
+    assert any("embed" in key for key in cache_keys), "Cache should contain word token embeddings"
+    assert any("ln_final" in key for key in cache_keys), "Cache should contain final layer norm"
+    assert any(
+        "unembed" in key for key in cache_keys
+    ), "Cache should contain unembedding/language model head"
 
     # Verify that cached tensors are actually tensors
     for key, value in cache.items():
@@ -95,7 +107,7 @@ def test_cache():
 def test_component_access():
     """Test that model components can be accessed correctly."""
     model_name = "gpt2"  # Use a smaller model for testing
-    bridge = boot(model_name)
+    bridge = TransformerBridge.boot_transformers(model_name)
 
     # Test accessing various components
     assert hasattr(bridge, "embed"), "Bridge should have embed component"

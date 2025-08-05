@@ -8,7 +8,7 @@ from transformer_lens.model_bridge.bridge import TransformerBridge
 from transformer_lens.model_bridge.generalized_components import (
     AttentionBridge,
     BlockBridge,
-    LayerNormBridge,
+    NormalizationBridge,
 )
 
 
@@ -30,13 +30,12 @@ class TestEndToEndBridge:
         adapter = MockArchitectureAdapter()
         # The mapping should now reflect the different names in the remote model
         adapter.component_mapping = {
-            "ln_final": ("final_norm", LayerNormBridge),
-            "blocks": (
-                "encoder.layers",
-                BlockBridge,
-                {
-                    "ln1": ("norm1", LayerNormBridge),
-                    "attn": ("self_attn", AttentionBridge),
+            "ln_final": NormalizationBridge(name="final_norm"),
+            "blocks": BlockBridge(
+                name="encoder.layers",
+                submodules={
+                    "ln1": NormalizationBridge(name="norm1"),
+                    "attn": AttentionBridge(name="self_attn"),
                 },
             ),
         }
@@ -45,6 +44,6 @@ class TestEndToEndBridge:
         bridge = TransformerBridge(model, adapter, tokenizer=MagicMock())
 
         # Check that the components are correctly bridged
-        assert isinstance(bridge.ln_final, LayerNormBridge)
+        assert isinstance(bridge.ln_final, NormalizationBridge)
         assert isinstance(bridge.blocks, nn.ModuleList)
         assert len(bridge.blocks) == 2
