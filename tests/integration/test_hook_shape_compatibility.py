@@ -35,8 +35,10 @@ FULL_HF_MODELS = [
     "roneneldan/TinyStories-33M",
 ]
 
+
 def _select_model_ids_from_acceptance_lists() -> list[str]:
     return FULL_HF_MODELS if os.environ.get("HF_TOKEN", "") else PUBLIC_HF_MODELS
+
 
 # Allow overriding via env, comma-separated HF ids
 DEFAULT_IDS = ",".join(_select_model_ids_from_acceptance_lists())
@@ -86,9 +88,15 @@ def _expected_shape_for_name(
         return (batch, n_heads, pos, pos)
 
     # Attention subprojections: q/k/v/o
-    if any(name.endswith(suf) for suf in ("attn.q.hook_in", "attn.k.hook_in", "attn.v.hook_in", "attn.o.hook_in")):
+    if any(
+        name.endswith(suf)
+        for suf in ("attn.q.hook_in", "attn.k.hook_in", "attn.v.hook_in", "attn.o.hook_in")
+    ):
         return (batch, pos, d_model)
-    if any(name.endswith(suf) for suf in ("attn.q.hook_out", "attn.k.hook_out", "attn.v.hook_out", "attn.o.hook_out")):
+    if any(
+        name.endswith(suf)
+        for suf in ("attn.q.hook_out", "attn.k.hook_out", "attn.v.hook_out", "attn.o.hook_out")
+    ):
         return (batch, pos, d_model)
 
     # LayerNorms within blocks
@@ -170,5 +178,3 @@ def test_transformer_bridge_hook_shapes(model_name: str):
     assert checked > 0, "No hooks were checked; update expected mapping or model filter"
     msg = "\n".join(f"{n}: expected {e}, got {g}" for n, e, g in mismatches[:20])
     assert not mismatches, f"Found {len(mismatches)} shape mismatches. Examples:\n{msg}"
-
-
