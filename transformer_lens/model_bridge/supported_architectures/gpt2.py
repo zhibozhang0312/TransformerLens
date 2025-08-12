@@ -4,11 +4,11 @@ from typing import Any
 
 import torch
 
-from transformer_lens.model_bridge.architecture_adapter import ArchitectureAdapter
-from transformer_lens.model_bridge.conversion_utils.conversion_steps import (
-    RearrangeWeightConversion,
-    WeightConversionSet,
+from transformer_lens.conversion_utils.conversion_steps import (
+    HookConversionSet,
+    RearrangeHookConversion,
 )
+from transformer_lens.model_bridge.architecture_adapter import ArchitectureAdapter
 from transformer_lens.model_bridge.generalized_components import (
     BlockBridge,
     EmbeddingBridge,
@@ -32,7 +32,7 @@ class GPT2ArchitectureAdapter(ArchitectureAdapter):
             "default_prepend_bos": True,  # Default for GPT-2 style models
         }
 
-        self.conversion_rules = WeightConversionSet(
+        self.conversion_rules = HookConversionSet(
             {
                 "pos_embed.pos": "transformer.wpe.weight",
                 "embed.e": "transformer.wte.weight",
@@ -40,7 +40,7 @@ class GPT2ArchitectureAdapter(ArchitectureAdapter):
                 "blocks.{i}.ln1.b": "transformer.h.{i}.ln_1.bias",
                 "blocks.{i}.attn.q": (
                     "transformer.h.{i}.attn.c_attn.weight",
-                    RearrangeWeightConversion(
+                    RearrangeHookConversion(
                         "m (three n h) -> three n m h",
                         three=3,
                         n=self.cfg.num_attention_heads,
@@ -48,7 +48,7 @@ class GPT2ArchitectureAdapter(ArchitectureAdapter):
                 ),
                 "blocks.{i}.attn.k": (
                     "transformer.h.{i}.attn.c_attn.weight",
-                    RearrangeWeightConversion(
+                    RearrangeHookConversion(
                         "m (three n h) -> three n m h",
                         three=3,
                         n=self.cfg.num_attention_heads,
@@ -56,7 +56,7 @@ class GPT2ArchitectureAdapter(ArchitectureAdapter):
                 ),
                 "blocks.{i}.attn.v": (
                     "transformer.h.{i}.attn.c_attn.weight",
-                    RearrangeWeightConversion(
+                    RearrangeHookConversion(
                         "m (three n h) -> three n m h",
                         three=3,
                         n=self.cfg.num_attention_heads,
@@ -64,7 +64,7 @@ class GPT2ArchitectureAdapter(ArchitectureAdapter):
                 ),
                 "blocks.{i}.attn.o": (
                     "transformer.h.{i}.attn.c_proj.weight",
-                    RearrangeWeightConversion("(n h) m -> n h m", n=self.cfg.num_attention_heads),
+                    RearrangeHookConversion("(n h) m -> n h m", n=self.cfg.num_attention_heads),
                 ),
                 "blocks.{i}.attn.b_Q": "transformer.h.{i}.attn.c_attn.bias",
                 "blocks.{i}.attn.b_K": "transformer.h.{i}.attn.c_attn.bias",
@@ -91,13 +91,13 @@ class GPT2ArchitectureAdapter(ArchitectureAdapter):
                     "ln1": NormalizationBridge(name="ln_1"),
                     "attn": JointQKVAttentionBridge(
                         name="attn",
+                        model_config=self.cfg,
                         submodules={
                             "qkv": LinearBridge(name="c_attn"),
                             "o": LinearBridge(name="c_proj"),
                         },
-                        config={
+                        qkv_config={
                             "split_qkv_matrix": self.split_qkv_matrix,
-                            "original_model_config": self.cfg,
                         },
                     ),
                     "ln2": NormalizationBridge(name="ln_2"),
@@ -133,8 +133,6 @@ class GPT2ArchitectureAdapter(ArchitectureAdapter):
         # Keep mypy happy
         assert isinstance(qkv_weights, torch.Tensor)
 
-        d_head = self.cfg.n_embd // self.cfg.n_head
-
         # Original qkv_weights shape: [d_model, 3 * d_model]
         # Split into three equal parts along dimension 1 to get Q, K, V weights
         W_Q, W_K, W_V = torch.tensor_split(qkv_weights, 3, dim=1)
@@ -144,9 +142,9 @@ class GPT2ArchitectureAdapter(ArchitectureAdapter):
         # Keep mypy happy
         assert isinstance(qkv_bias, torch.Tensor)
 
-        # Original qkv_bias shape: [3 * n_head * d_head]
-        # Reshape to [3, n_head * d_head] to split by Q, K, V
-        qkv_bias = qkv_bias.reshape(3, self.cfg.n_head * d_head)
+        # Original qkv_bias shape: [3 * n_heads * d_head]
+        # Reshape to [3, n_heads * d_head] to split by Q, K, V
+        qkv_bias = qkv_bias.reshape(3, self.cfg.n_heads * self.cfg.d_head)
         b_Q, b_K, b_V = qkv_bias[0, :], qkv_bias[1, :], qkv_bias[2, :]
 
         # Create nn.Linear modules
