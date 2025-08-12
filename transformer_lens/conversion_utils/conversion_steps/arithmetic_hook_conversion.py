@@ -6,9 +6,7 @@ from typing import Optional
 
 import torch
 
-from transformer_lens.model_bridge.conversion_utils.conversion_steps.base_weight_conversion import (
-    BaseWeightConversion,
-)
+from .base_hook_conversion import BaseHookConversion
 
 
 class OperationTypes(Enum):
@@ -18,7 +16,7 @@ class OperationTypes(Enum):
     DIVISION = 3
 
 
-class ArithmeticWeightConversion(BaseWeightConversion):
+class ArithmeticHookConversion(BaseHookConversion):
     def __init__(
         self,
         operation: OperationTypes,
