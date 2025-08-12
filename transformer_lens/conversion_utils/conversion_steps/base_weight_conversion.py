@@ -1,10 +1,10 @@
 from collections.abc import Callable
 from typing import Optional
 
-from .types import WeightConversionInterface
 
+class BaseHookConversion:
+    """Base class for weight conversions."""
 
-class BaseWeightConversion(WeightConversionInterface):
     def __init__(
         self, input_filter: Optional[Callable] = None, output_filter: Optional[Callable] = None
     ):

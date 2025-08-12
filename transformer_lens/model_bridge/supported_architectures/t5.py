@@ -2,10 +2,8 @@
 
 from typing import Any
 
+from transformer_lens.conversion_utils.conversion_steps import HookConversionSet
 from transformer_lens.model_bridge.architecture_adapter import ArchitectureAdapter
-from transformer_lens.model_bridge.conversion_utils.conversion_steps import (
-    WeightConversionSet,
-)
 from transformer_lens.model_bridge.generalized_components import (
     AttentionBridge,
     BlockBridge,
@@ -27,7 +25,7 @@ class T5ArchitectureAdapter(ArchitectureAdapter):
         """
         super().__init__(cfg)
 
-        self.conversion_rules = WeightConversionSet(
+        self.conversion_rules = HookConversionSet(
             {
                 "embed.e": "shared.weight",
                 "pos_embed.pos": "encoder.block.0.layer.0.SelfAttention.relative_attention_bias.weight",
@@ -52,7 +50,7 @@ class T5ArchitectureAdapter(ArchitectureAdapter):
                 name="encoder.block",
                 submodules={
                     "ln1": NormalizationBridge(name="layer.0.layer_norm"),
-                    "attn": AttentionBridge(name="layer.0.SelfAttention"),
+                    "attn": AttentionBridge(name="layer.0.SelfAttention", config=self.cfg),
                     "ln2": NormalizationBridge(name="layer.1.layer_norm"),
                     "mlp": MLPBridge(name="layer.1.DenseReluDense"),
                 },
