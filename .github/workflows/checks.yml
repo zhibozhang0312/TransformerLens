@@ -145,7 +145,7 @@ jobs:
       matrix:
         notebook:
           # - "Activation_Patching_in_TL_Demo"
-          # - "Attribution_Patching_Demo"
+          - "Attribution_Patching_Demo"
           - "ARENA_Content"
           - "Colab_Compatibility"
           - "BERT"
