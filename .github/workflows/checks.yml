@@ -155,6 +155,7 @@ jobs:
           - "Interactive_Neuroscope"
           # - "LLaMA"
           # - "LLaMA2_GPU_Quantized"
+          - "LLaVA"
           - "Main_Demo"
           # - "No_Position_Experiment"
           - "Othello_GPT"
