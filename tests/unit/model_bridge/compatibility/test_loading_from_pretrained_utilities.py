@@ -11,6 +11,7 @@ def get_transformer_bridge():
 
 # Successes
 
+
 @mock.patch("logging.warning")
 def test_fill_missing_keys(mock_warning: mock.MagicMock):
     model = get_transformer_bridge()
@@ -50,4 +51,4 @@ def test_fill_missing_keys_no_missing_keys():
 
     filled_state_dict = fill_missing_keys(model, default_state_dict)
 
-    assert filled_state_dict == default_state_dict 
+    assert filled_state_dict == default_state_dict

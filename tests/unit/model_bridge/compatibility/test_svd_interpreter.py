@@ -22,7 +22,7 @@ def unfolded_model():
     return TransformerBridge.boot_transformers(MODEL, device="cpu")
 
 
-@pytest.fixture(scope="module") 
+@pytest.fixture(scope="module")
 def second_model():
     # Use a different model architecture if available, otherwise same model
     try:
@@ -50,10 +50,10 @@ def test_svd_interpreter(model):
         w_in.topk(2, dim=0).values,
         w_out.topk(2, dim=0).values,
     )
-    
+
     # Basic shape and type checks (values may differ from original expected values)
     assert ov.shape[0] == 2
-    assert w_in.shape[0] == 2  
+    assert w_in.shape[0] == 2
     assert w_out.shape[0] == 2
     assert ov.shape == w_in.shape == w_out.shape
 
@@ -66,7 +66,7 @@ def test_w_in_when_fold_ln_is_false(unfolded_model):
         "w_in", num_vectors=4, layer_index=0, head_index=0
     ).abs()
     w_in = w_in.topk(2, dim=0).values
-    
+
     # Basic shape check
     assert w_in.shape[0] == 2
 
@@ -75,9 +75,9 @@ def test_svd_interpreter_returns_different_answers_for_different_layers(model):
     # Only test if model has multiple layers
     if model.cfg.n_layers < 2:
         pytest.skip("Model only has one layer")
-        
+
     svd_interpreter = SVDInterpreter(model)
-    
+
     # Layer 0 results
     ov_0 = svd_interpreter.get_singular_vectors(
         "OV", layer_index=0, num_vectors=4, head_index=0
@@ -89,7 +89,7 @@ def test_svd_interpreter_returns_different_answers_for_different_layers(model):
         "w_out", layer_index=0, num_vectors=4, head_index=0
     ).abs()
 
-    # Layer 1 results  
+    # Layer 1 results
     ov_1 = svd_interpreter.get_singular_vectors(
         "OV", layer_index=1, num_vectors=4, head_index=0
     ).abs()
@@ -102,7 +102,7 @@ def test_svd_interpreter_returns_different_answers_for_different_layers(model):
 
     # Results should be different between layers
     assert not torch.allclose(ov_0, ov_1, atol=ATOL)
-    assert not torch.allclose(w_in_0, w_in_1, atol=ATOL) 
+    assert not torch.allclose(w_in_0, w_in_1, atol=ATOL)
     assert not torch.allclose(w_out_0, w_out_1, atol=ATOL)
 
 
@@ -110,14 +110,14 @@ def test_svd_interpreter_returns_different_answers_for_different_models(model, s
     # Skip if both models are the same
     if id(model) == id(second_model):
         pytest.skip("Same model used for both fixtures")
-        
+
     # Get results from first model
     svd_interpreter_1 = SVDInterpreter(model)
     ov_1 = svd_interpreter_1.get_singular_vectors(
         "OV", layer_index=0, num_vectors=4, head_index=0
     ).abs()
-    
-    # Get results from second model  
+
+    # Get results from second model
     svd_interpreter_2 = SVDInterpreter(second_model)
     ov_2 = svd_interpreter_2.get_singular_vectors(
         "OV", layer_index=0, num_vectors=4, head_index=0
@@ -128,6 +128,7 @@ def test_svd_interpreter_returns_different_answers_for_different_models(model, s
 
 
 # Failures
+
 
 def test_svd_interpreter_fails_on_invalid_vector_type(model):
     svd_interpreter = SVDInterpreter(model)
@@ -146,11 +147,15 @@ def test_svd_interpreter_fails_on_invalid_layer_index(model):
     svd_interpreter = SVDInterpreter(model)
     max_layer = model.cfg.n_layers - 1
     invalid_layer = model.cfg.n_layers
-    
+
     for vector in VECTOR_TYPES:
         with pytest.raises(AssertionError) as e:
-            svd_interpreter.get_singular_vectors(vector, layer_index=invalid_layer, num_vectors=4, head_index=0)
-        assert f"Layer index must be between 0 and {max_layer} but got {invalid_layer}" in str(e.value)
+            svd_interpreter.get_singular_vectors(
+                vector, layer_index=invalid_layer, num_vectors=4, head_index=0
+            )
+        assert f"Layer index must be between 0 and {max_layer} but got {invalid_layer}" in str(
+            e.value
+        )
 
 
 def test_svd_interpreter_fails_on_invalid_head_index(model):
@@ -158,7 +163,9 @@ def test_svd_interpreter_fails_on_invalid_head_index(model):
     svd_interpreter = SVDInterpreter(model)
     max_head = model.cfg.n_heads - 1
     invalid_head = model.cfg.n_heads
-    
+
     with pytest.raises(AssertionError) as e:
-        svd_interpreter.get_singular_vectors("OV", layer_index=0, num_vectors=4, head_index=invalid_head)
-    assert f"Head index must be between 0 and {max_head} but got {invalid_head}" in str(e.value) 
+        svd_interpreter.get_singular_vectors(
+            "OV", layer_index=0, num_vectors=4, head_index=invalid_head
+        )
+    assert f"Head index must be between 0 and {max_head} but got {invalid_head}" in str(e.value)

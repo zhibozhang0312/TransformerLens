@@ -6,4 +6,4 @@ functionality as HookedTransformer, HookedEncoder, and HookedEncoderDecoder.
 
 These tests are adapted from the original unit tests in the parent directories
 to use TransformerBridge instead of the original classes.
-""" 
+"""

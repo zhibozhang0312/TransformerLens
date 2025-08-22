@@ -6,4 +6,4 @@ functionality as HookedTransformer, HookedEncoder, and HookedEncoderDecoder.
 
 These tests focus on integration-level functionality like hooks, caching, and 
 HuggingFace model compatibility.
-""" 
+"""

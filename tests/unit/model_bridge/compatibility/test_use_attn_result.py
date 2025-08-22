@@ -8,7 +8,7 @@ def test_atten_result_normal_attn_correct():
     # Use a simple pretrained model instead of creating from scratch
     # since TransformerBridge works with pretrained models
     model = TransformerBridge.boot_transformers("gpt2", device="cpu")
-    
+
     # Check initial state
     assert model.cfg.use_split_qkv_input is False
 
@@ -29,13 +29,14 @@ def test_atten_result_grouped_query_attn_correct():
     # Note: GPT-2 doesn't have grouped query attention, so this test may not be fully applicable
     # but we'll keep the structure for when models with GQA are supported
     model = TransformerBridge.boot_transformers("gpt2", device="cpu")
-    
+
     # Check if model supports grouped query attention
-    if not hasattr(model.cfg, 'n_key_value_heads') or model.cfg.n_key_value_heads is None:
+    if not hasattr(model.cfg, "n_key_value_heads") or model.cfg.n_key_value_heads is None:
         # Skip this test for models without grouped query attention
         import pytest
+
         pytest.skip("Model does not support grouped query attention")
-    
+
     assert model.cfg.use_split_qkv_input is False
 
     x = torch.arange(1, 9).unsqueeze(0)
@@ -46,4 +47,4 @@ def test_atten_result_grouped_query_attn_correct():
 
     split_output = model(x)
 
-    assert torch.allclose(normal_output, split_output, atol=1e-6) 
+    assert torch.allclose(normal_output, split_output, atol=1e-6)

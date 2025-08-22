@@ -63,10 +63,10 @@ def test_call_chain(bert_nsp, mock_transformer_bridge):
 
     # Set up specific mock returns
     mock_resid = torch.randn(1, 3, 768)
-    
+
     # For TransformerBridge, we might need to adapt the encoder_output call
     # This depends on how BERT models are implemented in the bridge
-    if hasattr(mock_transformer_bridge, 'encoder_output'):
+    if hasattr(mock_transformer_bridge, "encoder_output"):
         mock_transformer_bridge.encoder_output.return_value = mock_resid
     else:
         # Fallback: mock the forward call directly
@@ -83,13 +83,13 @@ def test_call_chain(bert_nsp, mock_transformer_bridge):
         output = bert_nsp.forward(
             input_tensor, token_type_ids=token_type_ids, one_zero_attention_mask=attention_mask
         )
-        
+
         # Verify the chain of calls (adapted for TransformerBridge)
-        if hasattr(mock_transformer_bridge, 'encoder_output'):
+        if hasattr(mock_transformer_bridge, "encoder_output"):
             mock_transformer_bridge.encoder_output.assert_called_once_with(
                 input_tensor, token_type_ids, attention_mask
             )
-        
+
         mock_transformer_bridge.pooler.assert_called_once()
         mock_transformer_bridge.nsp_head.assert_called_once_with(mock_pooled)
 
@@ -261,4 +261,4 @@ def test_return_type_consistency(bert_nsp, mock_transformer_bridge):
         predicted_class
     ]
 
-    assert prediction_str == expected_prediction  # Based on mock logits 
+    assert prediction_str == expected_prediction  # Based on mock logits

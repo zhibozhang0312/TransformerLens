@@ -7,7 +7,7 @@ from transformer_lens.model_bridge import TransformerBridge
 
 class TestMatchHuggingFace:
     """Test that TransformerBridge matches HuggingFace model outputs."""
-    
+
     # fixtures
     @pytest.fixture(scope="class", params=["gpt2"])
     def model_name(self, request):
@@ -19,28 +19,30 @@ class TestMatchHuggingFace:
         try:
             bridge_model = TransformerBridge.boot_transformers(model_name, device="cpu")
             hf_model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cpu")
-            
+
             tensor_shape = (3, 5, bridge_model.cfg.d_model)
             test_tensor = torch.randn(tensor_shape)
 
             # Check if bridge model has blocks
-            if not hasattr(bridge_model, 'blocks'):
+            if not hasattr(bridge_model, "blocks"):
                 pytest.skip("TransformerBridge doesn't have blocks attribute")
-                
+
             n_layers = min(len(bridge_model.blocks), len(hf_model.transformer.h))
-            
+
             for layer_n in range(n_layers):
                 # Get MLP from bridge model
-                if hasattr(bridge_model.blocks[layer_n], 'mlp'):
+                if hasattr(bridge_model.blocks[layer_n], "mlp"):
                     bridge_out = bridge_model.blocks[layer_n].mlp(test_tensor)
                 else:
                     pytest.skip(f"Layer {layer_n} doesn't have mlp attribute in TransformerBridge")
-                    
+
                 # Get MLP from HuggingFace model
                 hf_out = hf_model.transformer.h[layer_n].mlp(test_tensor)
 
-                assert torch.allclose(bridge_out, hf_out, atol=1e-4), f"MLP layer {layer_n} outputs don't match"
-                
+                assert torch.allclose(
+                    bridge_out, hf_out, atol=1e-4
+                ), f"MLP layer {layer_n} outputs don't match"
+
         except AttributeError as e:
             pytest.skip(f"Required attributes not available on TransformerBridge: {e}")
         except Exception as e:
@@ -51,23 +53,23 @@ class TestMatchHuggingFace:
         try:
             bridge_model = TransformerBridge.boot_transformers(model_name, device="cpu")
             hf_model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cpu")
-            
+
             batch, pos, d_model = 3, 5, bridge_model.cfg.d_model
             input_tensor = torch.randn(batch, pos, d_model)
 
             # Check if bridge model has blocks
-            if not hasattr(bridge_model, 'blocks'):
+            if not hasattr(bridge_model, "blocks"):
                 pytest.skip("TransformerBridge doesn't have blocks attribute")
-                
+
             n_layers = min(len(bridge_model.blocks), len(hf_model.transformer.h))
 
             for layer_n in range(n_layers):
                 # Get attention from bridge model
-                if hasattr(bridge_model.blocks[layer_n], 'attn'):
+                if hasattr(bridge_model.blocks[layer_n], "attn"):
                     bridge_attn = bridge_model.blocks[layer_n].attn
-                    
+
                     # Try different ways to call attention based on what's available
-                    if hasattr(bridge_attn, '__call__'):
+                    if hasattr(bridge_attn, "__call__"):
                         try:
                             # Try TransformerLens-style call
                             bridge_out = bridge_attn(
@@ -84,14 +86,16 @@ class TestMatchHuggingFace:
                         pytest.skip(f"Layer {layer_n} attention not callable in TransformerBridge")
                 else:
                     pytest.skip(f"Layer {layer_n} doesn't have attn attribute in TransformerBridge")
-                    
+
                 # Get attention from HuggingFace model
                 hf_out = hf_model.transformer.h[layer_n].attn(
                     hidden_states=input_tensor, output_attentions=True
                 )[0]
 
-                assert torch.allclose(bridge_out, hf_out, atol=1e-4), f"Attention layer {layer_n} outputs don't match"
-                
+                assert torch.allclose(
+                    bridge_out, hf_out, atol=1e-4
+                ), f"Attention layer {layer_n} outputs don't match"
+
         except AttributeError as e:
             pytest.skip(f"Required attributes not available on TransformerBridge: {e}")
         except Exception as e:
@@ -102,25 +106,29 @@ class TestMatchHuggingFace:
         try:
             bridge_model = TransformerBridge.boot_transformers(model_name, device="cpu")
             hf_model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cpu")
-            
+
             # Test with a simple prompt
             prompt = "The capital of France is"
-            
+
             # Get bridge model output
             bridge_tokens = bridge_model.to_tokens(prompt)
             bridge_output = bridge_model(bridge_tokens)
-            
+
             # Get HuggingFace model output
             hf_output = hf_model(bridge_tokens)
-            if hasattr(hf_output, 'logits'):
+            if hasattr(hf_output, "logits"):
                 hf_logits = hf_output.logits
             else:
                 hf_logits = hf_output
-            
+
             # Compare outputs
-            assert bridge_output.shape == hf_logits.shape, f"Output shapes don't match: {bridge_output.shape} vs {hf_logits.shape}"
-            assert torch.allclose(bridge_output, hf_logits, atol=1e-3), "Full model outputs don't match"
-            
+            assert (
+                bridge_output.shape == hf_logits.shape
+            ), f"Output shapes don't match: {bridge_output.shape} vs {hf_logits.shape}"
+            assert torch.allclose(
+                bridge_output, hf_logits, atol=1e-3
+            ), "Full model outputs don't match"
+
         except Exception as e:
             pytest.fail(f"Unexpected error in full model comparison: {e}")
 
@@ -128,26 +136,26 @@ class TestMatchHuggingFace:
         """Test that TransformerBridge tokenizer matches HuggingFace tokenizer."""
         try:
             bridge_model = TransformerBridge.boot_transformers(model_name, device="cpu")
-            
+
             # Test tokenization
             prompt = "Hello, world! This is a test."
             bridge_tokens = bridge_model.to_tokens(prompt)
-            
+
             # Basic checks
             assert isinstance(bridge_tokens, torch.Tensor)
             assert bridge_tokens.ndim == 2  # [batch, seq]
             assert bridge_tokens.shape[0] == 1  # Single prompt
-            
+
             # Test decoding
             decoded = bridge_model.to_string(bridge_tokens)
             assert isinstance(decoded, list)
             assert len(decoded) == 1
-            
+
             # Test str_tokens
             str_tokens = bridge_model.to_str_tokens(prompt)
             assert isinstance(str_tokens, list)
             assert all(isinstance(token, str) for token in str_tokens)
-            
+
         except Exception as e:
             pytest.fail(f"Unexpected error in tokenizer consistency: {e}")
 
@@ -156,24 +164,26 @@ class TestMatchHuggingFace:
         try:
             bridge_model = TransformerBridge.boot_transformers(model_name, device="cpu")
             hf_model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cpu")
-            
+
             bridge_cfg = bridge_model.cfg
             hf_cfg = hf_model.config
-            
+
             # Check key configuration parameters
             config_mappings = [
-                ('n_layers', 'n_layer'),
-                ('d_model', 'n_embd'),
-                ('n_heads', 'n_head'),
-                ('d_vocab', 'vocab_size'),
+                ("n_layers", "n_layer"),
+                ("d_model", "n_embd"),
+                ("n_heads", "n_head"),
+                ("d_vocab", "vocab_size"),
             ]
-            
+
             for bridge_attr, hf_attr in config_mappings:
                 if hasattr(bridge_cfg, bridge_attr) and hasattr(hf_cfg, hf_attr):
                     bridge_val = getattr(bridge_cfg, bridge_attr)
                     hf_val = getattr(hf_cfg, hf_attr)
-                    assert bridge_val == hf_val, f"Config mismatch: {bridge_attr}={bridge_val} vs {hf_attr}={hf_val}"
-                    
+                    assert (
+                        bridge_val == hf_val
+                    ), f"Config mismatch: {bridge_attr}={bridge_val} vs {hf_attr}={hf_val}"
+
         except Exception as e:
             pytest.fail(f"Unexpected error in config consistency: {e}")
 
@@ -181,46 +191,46 @@ class TestMatchHuggingFace:
         """Test that TransformerBridge weight access provides expected values."""
         try:
             bridge_model = TransformerBridge.boot_transformers(model_name, device="cpu")
-            
+
             # Test basic weight access patterns
             weight_checks = []
-            
+
             try:
                 # Test attention weights
                 w_q = bridge_model.W_Q
                 w_k = bridge_model.W_K
                 w_v = bridge_model.W_V
                 w_o = bridge_model.W_O
-                
+
                 # Basic shape checks
                 assert w_q.shape[0] == bridge_model.cfg.n_layers
                 assert w_k.shape[0] == bridge_model.cfg.n_layers
                 assert w_v.shape[0] == bridge_model.cfg.n_layers
                 assert w_o.shape[0] == bridge_model.cfg.n_layers
-                
+
                 weight_checks.append("attention_weights")
-                
+
             except AttributeError:
                 pass  # Weight access might not be implemented yet
-                
+
             try:
                 # Test MLP weights
                 w_in = bridge_model.W_in
                 w_out = bridge_model.W_out
-                
+
                 assert w_in.shape[0] == bridge_model.cfg.n_layers
                 assert w_out.shape[0] == bridge_model.cfg.n_layers
-                
+
                 weight_checks.append("mlp_weights")
-                
+
             except AttributeError:
                 pass  # Weight access might not be implemented yet
-                
+
             # At least basic weight access should work
             if len(weight_checks) == 0:
                 pytest.skip("No weight access methods available on TransformerBridge")
             else:
                 print(f"Available weight access: {weight_checks}")
-                
+
         except Exception as e:
-            pytest.fail(f"Unexpected error in weight access consistency: {e}") 
+            pytest.fail(f"Unexpected error in weight access consistency: {e}")

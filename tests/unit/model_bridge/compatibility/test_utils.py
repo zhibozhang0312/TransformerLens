@@ -7,7 +7,7 @@ from transformer_lens.model_bridge import TransformerBridge
 
 class TestUtilsWithTransformerBridge:
     """Test utilities functions that work with TransformerBridge models."""
-    
+
     # fixtures
     @pytest.fixture(scope="class", params=["gpt2"])  # Start with just gpt2 for bridge compatibility
     def model_name(self, request):
@@ -24,7 +24,7 @@ class TestUtilsWithTransformerBridge:
     def test_get_attention_mask(self, model, padding_side, prepend_bos, prompts_with_sep):
         # setup
         model.tokenizer.padding_side = padding_side
-        if hasattr(model.tokenizer, 'sep_token_id'):
+        if hasattr(model.tokenizer, "sep_token_id"):
             model.tokenizer.sep_token_id = model.tokenizer.pad_token_id
         prepend_bos = prepend_bos
 
@@ -34,24 +34,24 @@ class TestUtilsWithTransformerBridge:
             "Hello world, this is a test",
             "Short",
         ]
-        
+
         if prompts_with_sep:
             # Add separator if model supports it
-            if hasattr(model.tokenizer, 'sep_token') and model.tokenizer.sep_token:
+            if hasattr(model.tokenizer, "sep_token") and model.tokenizer.sep_token:
                 prompts = [prompt + model.tokenizer.sep_token for prompt in prompts]
 
         # Get tokens using TransformerBridge's tokenization method
         tokens = model.to_tokens(prompts, prepend_bos=prepend_bos, padding_side=padding_side)
-        
+
         # Test attention mask utility
         attention_mask = utils.get_attention_mask(model.tokenizer, tokens, prepend_bos)
-        
+
         # Basic checks
         assert attention_mask.shape == tokens.shape
         assert attention_mask.dtype == torch.bool
-        
+
         # Check that non-padding tokens have attention_mask = True
-        if hasattr(model.tokenizer, 'pad_token_id') and model.tokenizer.pad_token_id is not None:
+        if hasattr(model.tokenizer, "pad_token_id") and model.tokenizer.pad_token_id is not None:
             non_padding_mask = tokens != model.tokenizer.pad_token_id
             # All non-padding positions should have attention
             assert torch.all(attention_mask >= non_padding_mask)
@@ -59,17 +59,17 @@ class TestUtilsWithTransformerBridge:
     def test_tokenizer_compatibility(self, model):
         """Test that TransformerBridge tokenizer works with utility functions."""
         prompt = "Hello, world!"
-        
+
         # Test basic tokenization
         tokens = model.to_tokens(prompt)
         assert tokens.ndim == 2  # Should have batch dimension
         assert tokens.shape[0] == 1  # Single prompt
-        
+
         # Test string conversion
         decoded = model.to_string(tokens)
         assert isinstance(decoded, list)
         assert len(decoded) == 1
-        
+
         # Test str_tokens
         str_tokens = model.to_str_tokens(prompt)
         assert isinstance(str_tokens, list)
@@ -78,12 +78,12 @@ class TestUtilsWithTransformerBridge:
     def test_device_compatibility(self, model):
         """Test that device handling works correctly with TransformerBridge."""
         prompt = "Test prompt"
-        
+
         # Test CPU
         model_cpu = model.cpu()
         tokens_cpu = model_cpu.to_tokens(prompt)
         assert tokens_cpu.device.type == "cpu"
-        
+
         # Test moving between devices if CUDA is available
         if torch.cuda.is_available():
             model_cuda = model.cuda()
@@ -93,14 +93,14 @@ class TestUtilsWithTransformerBridge:
     def test_forward_pass_compatibility(self, model):
         """Test that forward pass works correctly with TransformerBridge."""
         prompt = "The capital of France is"
-        
+
         # Basic forward pass
         output = model(prompt)
         assert isinstance(output, torch.Tensor)
         assert output.ndim == 3  # [batch, seq, vocab]
         assert output.shape[0] == 1  # Single prompt
         assert output.shape[2] == model.cfg.d_vocab  # Vocab size
-        
+
         # Test with return_type
         logits = model(prompt, return_type="logits")
         assert torch.allclose(output, logits)
@@ -108,14 +108,14 @@ class TestUtilsWithTransformerBridge:
     def test_caching_compatibility(self, model):
         """Test that caching works correctly with TransformerBridge."""
         prompt = "Test caching"
-        
+
         # Test basic caching
         output, cache = model.run_with_cache(prompt)
         assert isinstance(output, torch.Tensor)
-        assert isinstance(cache, dict) or hasattr(cache, 'cache_dict')
-        
+        assert isinstance(cache, dict) or hasattr(cache, "cache_dict")
+
         # Cache should contain some activations
-        if hasattr(cache, 'cache_dict'):
+        if hasattr(cache, "cache_dict"):
             cache_dict = cache.cache_dict
         else:
             cache_dict = cache
@@ -124,7 +124,7 @@ class TestUtilsWithTransformerBridge:
     def test_generation_compatibility(self, model):
         """Test that generation works correctly with TransformerBridge."""
         prompt = "Once upon a time"
-        
+
         # Test basic generation if supported
         try:
             generated = model.generate(prompt, max_new_tokens=5)
@@ -137,7 +137,7 @@ class TestUtilsWithTransformerBridge:
     def test_tokenization_methods(self, model, method):
         """Test various tokenization methods work with TransformerBridge."""
         prompt = "Test tokenization"
-        
+
         if method == "to_tokens":
             result = model.to_tokens(prompt)
             assert isinstance(result, torch.Tensor)
@@ -156,34 +156,34 @@ class TestUtilsWithTransformerBridge:
         try:
             # These properties should exist on TransformerBridge
             w_q = model.W_Q
-            w_k = model.W_K  
+            w_k = model.W_K
             w_v = model.W_V
             w_o = model.W_O
-            
+
             # Basic shape checks
             assert w_q.ndim == 4  # [n_layers, n_heads, d_model, d_head]
             assert w_k.ndim == 4
             assert w_v.ndim == 4
             assert w_o.ndim == 4
-            
+
             assert w_q.shape[0] == model.cfg.n_layers
             assert w_q.shape[1] == model.cfg.n_heads
-            
+
         except AttributeError as e:
             pytest.skip(f"Weight access not fully implemented: {e}")
 
     def test_config_compatibility(self, model):
         """Test that config access works correctly with TransformerBridge."""
         cfg = model.cfg
-        
+
         # Basic config properties that should exist
-        assert hasattr(cfg, 'n_layers')
-        assert hasattr(cfg, 'd_model')
-        assert hasattr(cfg, 'n_heads')
-        assert hasattr(cfg, 'd_vocab')
-        
+        assert hasattr(cfg, "n_layers")
+        assert hasattr(cfg, "d_model")
+        assert hasattr(cfg, "n_heads")
+        assert hasattr(cfg, "d_vocab")
+
         # Values should be reasonable
         assert cfg.n_layers > 0
         assert cfg.d_model > 0
         assert cfg.n_heads > 0
-        assert cfg.d_vocab > 0 
+        assert cfg.d_vocab > 0
