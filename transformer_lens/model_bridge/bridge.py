@@ -9,6 +9,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Iterator,
     List,
     Literal,
     Optional,
@@ -617,7 +618,9 @@ class TransformerBridge(nn.Module):
         """Property access to model parameters in the format expected by SVDInterpreter."""
         return self.get_params()
 
-    def named_parameters(self, prefix: str = "", recurse: bool = True):
+    def named_parameters(
+        self, prefix: str = "", recurse: bool = True, remove_duplicate: bool = True
+    ) -> Iterator[Tuple[str, torch.nn.Parameter]]:
         """Return named parameters in the same format as HookedTransformer.
 
         This ensures compatibility with tools like SVDInterpreter that expect
