@@ -56,6 +56,9 @@ class GeneralizedComponent(nn.Module):
         self.config = config
         self.submodules = submodules or {}
         self.conversion_rule = conversion_rule
+        self._hook_registry: Dict[
+            str, HookPoint
+        ] = {}  # Dynamic registry of hook names to HookPoints
 
         # Standardized hooks for all bridge components
         self.hook_in = HookPoint()
@@ -65,6 +68,31 @@ class GeneralizedComponent(nn.Module):
         if self.conversion_rule is not None:
             self.hook_in.hook_conversion = self.conversion_rule
             self.hook_out.hook_conversion = self.conversion_rule
+
+        # Register the standard hooks
+        self._register_hook("hook_in", self.hook_in)
+        self._register_hook("hook_out", self.hook_out)
+
+    def _register_hook(self, name: str, hook: HookPoint) -> None:
+        """Register a hook in the component's hook registry."""
+        # Set the name on the HookPoint
+        hook.name = name
+        # Add to registry
+        self._hook_registry[name] = hook
+
+    def get_hooks(self) -> Dict[str, HookPoint]:
+        """Get all hooks registered in this component."""
+        hooks = self._hook_registry.copy()
+
+        # Add aliases if compatibility mode is enabled
+        if self.compatibility_mode and self.hook_aliases:
+            for alias_name, target_name in self.hook_aliases.items():
+                # Use the existing alias system to resolve the target hook
+                target_hook = resolve_alias(self, alias_name, self.hook_aliases)
+                if target_hook is not None:
+                    hooks[alias_name] = target_hook
+
+        return hooks
 
     def _is_getattr_called_internally(self) -> bool:
         """This function checks if the __getattr__ method was being called internally
@@ -217,6 +245,13 @@ class GeneralizedComponent(nn.Module):
     def __setattr__(self, name: str, value: Any) -> None:
         """Set attribute, with passthrough to original component for compatibility."""
         # Handle normal PyTorch module attributes and our own attributes
+
+        # Check if this is a HookPoint being set
+        if isinstance(value, HookPoint):
+            self._register_hook(name, value)
+            super().__setattr__(name, value)
+            return
+
         if name.startswith("_") or name in [
             "name",
             "config",
@@ -224,8 +259,6 @@ class GeneralizedComponent(nn.Module):
             "conversion_rule",
             "compatibility_mode",
             "disable_warnings",
-            "hook_in",
-            "hook_out",
         ]:
             super().__setattr__(name, value)
             return
