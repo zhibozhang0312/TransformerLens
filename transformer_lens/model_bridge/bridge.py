@@ -20,7 +20,6 @@ from typing import (
 
 import numpy as np
 import torch
-from jaxtyping import Float
 from torch import nn
 
 from transformer_lens import utils
@@ -441,75 +440,107 @@ class TransformerBridge(nn.Module):
         raise AssertionError("Expected a single string token.")
 
     @property
-    def W_K(self) -> Float[torch.Tensor, "n_layers n_heads d_model d_head"]:
+    def W_K(self) -> torch.Tensor:
         """Stack the key weights across all layers."""
-        return torch.stack([block.attn.k.weight for block in self.blocks], dim=0)
+        weights = []
+        for block in self.blocks:
+            w_k = block.attn.W_K
+            # Reshape from [d_model, d_model] to [n_heads, d_model, d_head]
+            if w_k.shape == (self.cfg.d_model, self.cfg.d_model):
+                d_head = self.cfg.d_model // self.cfg.n_heads
+                w_k = w_k.reshape(self.cfg.n_heads, self.cfg.d_model, d_head)
+            weights.append(w_k)
+        return torch.stack(weights, dim=0)
 
     @property
-    def W_Q(self) -> Float[torch.Tensor, "n_layers n_heads d_model d_head"]:
+    def W_Q(self) -> torch.Tensor:
         """Stack the query weights across all layers."""
-        return torch.stack([block.attn.q.weight for block in self.blocks], dim=0)
+        weights = []
+        for block in self.blocks:
+            w_q = block.attn.W_Q
+            # Reshape from [d_model, d_model] to [n_heads, d_model, d_head]
+            if w_q.shape == (self.cfg.d_model, self.cfg.d_model):
+                d_head = self.cfg.d_model // self.cfg.n_heads
+                w_q = w_q.reshape(self.cfg.n_heads, self.cfg.d_model, d_head)
+            weights.append(w_q)
+        return torch.stack(weights, dim=0)
 
     @property
-    def W_V(self) -> Float[torch.Tensor, "n_layers n_heads d_model d_head"]:
+    def W_V(self) -> torch.Tensor:
         """Stack the value weights across all layers."""
-        return torch.stack([block.attn.v.weight for block in self.blocks], dim=0)
+        weights = []
+        for block in self.blocks:
+            w_v = block.attn.W_V
+            # Reshape from [d_model, d_model] to [n_heads, d_model, d_head]
+            if w_v.shape == (self.cfg.d_model, self.cfg.d_model):
+                d_head = self.cfg.d_model // self.cfg.n_heads
+                w_v = w_v.reshape(self.cfg.n_heads, self.cfg.d_model, d_head)
+            weights.append(w_v)
+        return torch.stack(weights, dim=0)
 
     @property
-    def W_O(self) -> Float[torch.Tensor, "n_layers n_heads d_head d_model"]:
+    def W_O(self) -> torch.Tensor:
         """Stack the attn output weights across all layers."""
-        return torch.stack([block.attn.o.weight for block in self.blocks], dim=0)
+        weights = []
+        for block in self.blocks:
+            w_o = block.attn.W_O
+            # Reshape from [d_model, d_model] to [n_heads, d_head, d_model]
+            if w_o.shape == (self.cfg.d_model, self.cfg.d_model):
+                d_head = self.cfg.d_model // self.cfg.n_heads
+                w_o = w_o.reshape(self.cfg.n_heads, d_head, self.cfg.d_model)
+            weights.append(w_o)
+        return torch.stack(weights, dim=0)
 
     @property
-    def W_in(self) -> Float[torch.Tensor, "n_layers d_model d_mlp"]:
+    def W_in(self) -> torch.Tensor:
         """Stack the MLP input weights across all layers."""
-        return torch.stack([getattr(block.mlp, "in").weight for block in self.blocks], dim=0)
+        return torch.stack([block.mlp.W_in for block in self.blocks], dim=0)
 
     @property
-    def W_gate(self) -> Union[Float[torch.Tensor, "n_layers d_model d_mlp"], None]:
+    def W_gate(self) -> Union[torch.Tensor, None]:
         """Stack the MLP gate weights across all layers.
 
         Only works for models with gated MLPs.
         """
         if getattr(self.cfg, "gated_mlp", False):
-            return torch.stack([block.mlp.gate.weight for block in self.blocks], dim=0)
+            return torch.stack([block.mlp.W_gate for block in self.blocks], dim=0)
         else:
             return None
 
     @property
-    def W_out(self) -> Float[torch.Tensor, "n_layers d_mlp d_model"]:
+    def W_out(self) -> torch.Tensor:
         """Stack the MLP output weights across all layers."""
-        return torch.stack([block.mlp.out.weight for block in self.blocks], dim=0)
+        return torch.stack([block.mlp.W_out for block in self.blocks], dim=0)
 
     @property
-    def b_K(self) -> Float[torch.Tensor, "n_layers n_heads d_head"]:
+    def b_K(self) -> torch.Tensor:
         """Stack the key biases across all layers."""
-        return torch.stack([block.attn.b_K.bias for block in self.blocks], dim=0)
+        return torch.stack([block.attn.b_K for block in self.blocks], dim=0)
 
     @property
-    def b_Q(self) -> Float[torch.Tensor, "n_layers n_heads d_head"]:
+    def b_Q(self) -> torch.Tensor:
         """Stack the query biases across all layers."""
-        return torch.stack([block.attn.b_Q.bias for block in self.blocks], dim=0)
+        return torch.stack([block.attn.b_Q for block in self.blocks], dim=0)
 
     @property
-    def b_V(self) -> Float[torch.Tensor, "n_layers n_heads d_head"]:
+    def b_V(self) -> torch.Tensor:
         """Stack the value biases across all layers."""
-        return torch.stack([block.attn.b_V.bias for block in self.blocks], dim=0)
+        return torch.stack([block.attn.b_V for block in self.blocks], dim=0)
 
     @property
-    def b_O(self) -> Float[torch.Tensor, "n_layers d_model"]:
+    def b_O(self) -> torch.Tensor:
         """Stack the attn output biases across all layers."""
-        return torch.stack([block.attn.b_O.bias for block in self.blocks], dim=0)
+        return torch.stack([block.attn.b_O for block in self.blocks], dim=0)
 
     @property
-    def b_in(self) -> Float[torch.Tensor, "n_layers d_mlp"]:
+    def b_in(self) -> torch.Tensor:
         """Stack the MLP input biases across all layers."""
-        return torch.stack([block.mlp.b_in.bias for block in self.blocks], dim=0)
+        return torch.stack([block.mlp.b_in for block in self.blocks], dim=0)
 
     @property
-    def b_out(self) -> Float[torch.Tensor, "n_layers d_model"]:
+    def b_out(self) -> torch.Tensor:
         """Stack the MLP output biases across all layers."""
-        return torch.stack([block.mlp.b_out.bias for block in self.blocks], dim=0)
+        return torch.stack([block.mlp.b_out for block in self.blocks], dim=0)
 
     @property
     def QK(self):
@@ -518,6 +549,83 @@ class TransformerBridge(nn.Module):
     @property
     def OV(self):
         return FactoredMatrix(self.W_V, self.W_O)
+
+    def get_params(self):
+        """Access to model parameters in the format expected by SVDInterpreter."""
+        params_dict = {}
+
+        # Add embedding weights
+        params_dict["embed.W_E"] = self.embed.weight
+        params_dict["pos_embed.W_pos"] = self.pos_embed.weight
+
+        # Add attention weights
+        for layer_idx in range(self.cfg.n_layers):
+            block = self.blocks[layer_idx]
+
+            # Attention weights - reshape to expected format
+            w_q = block.attn.q.weight
+            w_k = block.attn.k.weight
+            w_v = block.attn.v.weight
+            w_o = block.attn.o.weight
+
+            # Reshape from [d_model, d_model] to [n_heads, d_model, d_head] and [n_heads, d_head, d_model]
+            if w_q.shape == (self.cfg.d_model, self.cfg.d_model):
+                d_head = self.cfg.d_model // self.cfg.n_heads
+                w_q = w_q.reshape(self.cfg.n_heads, self.cfg.d_model, d_head)
+                w_k = w_k.reshape(self.cfg.n_heads, self.cfg.d_model, d_head)
+                w_v = w_v.reshape(self.cfg.n_heads, self.cfg.d_model, d_head)
+                w_o = w_o.reshape(self.cfg.n_heads, d_head, self.cfg.d_model)
+
+            params_dict[f"blocks.{layer_idx}.attn.W_Q"] = w_q
+            params_dict[f"blocks.{layer_idx}.attn.W_K"] = w_k
+            params_dict[f"blocks.{layer_idx}.attn.W_V"] = w_v
+            params_dict[f"blocks.{layer_idx}.attn.W_O"] = w_o
+
+            # Attention biases
+            params_dict[f"blocks.{layer_idx}.attn.b_Q"] = block.attn.q.bias.reshape(
+                self.cfg.n_heads, -1
+            )
+            params_dict[f"blocks.{layer_idx}.attn.b_K"] = block.attn.k.bias.reshape(
+                self.cfg.n_heads, -1
+            )
+            params_dict[f"blocks.{layer_idx}.attn.b_V"] = block.attn.v.bias.reshape(
+                self.cfg.n_heads, -1
+            )
+            params_dict[f"blocks.{layer_idx}.attn.b_O"] = block.attn.o.bias
+
+            # MLP weights - access the actual weight tensors
+            params_dict[f"blocks.{layer_idx}.mlp.W_in"] = getattr(block.mlp, "in").weight
+            params_dict[f"blocks.{layer_idx}.mlp.W_out"] = block.mlp.out.weight
+
+            # MLP biases
+            params_dict[f"blocks.{layer_idx}.mlp.b_in"] = getattr(block.mlp, "in").bias
+            params_dict[f"blocks.{layer_idx}.mlp.b_out"] = block.mlp.out.bias
+
+            # Add gate weights if they exist
+            if hasattr(block.mlp, "gate") and hasattr(block.mlp.gate, "weight"):
+                params_dict[f"blocks.{layer_idx}.mlp.W_gate"] = block.mlp.gate.weight
+                if hasattr(block.mlp.gate, "bias") and block.mlp.gate.bias is not None:
+                    params_dict[f"blocks.{layer_idx}.mlp.b_gate"] = block.mlp.gate.bias
+
+        # Add unembedding weights
+        params_dict["unembed.W_U"] = self.unembed.weight.T
+
+        return params_dict
+
+    @property
+    def params(self):
+        """Property access to model parameters in the format expected by SVDInterpreter."""
+        return self.get_params()
+
+    def named_parameters(self, prefix: str = "", recurse: bool = True):
+        """Return named parameters in the same format as HookedTransformer.
+
+        This ensures compatibility with tools like SVDInterpreter that expect
+        parameter names like 'blocks.0.attn.W_Q' instead of the raw model names.
+        """
+        params_dict = self.get_params()
+        for name, param in params_dict.items():
+            yield name, param
 
     # ==================== FORWARD PASS METHODS ====================
 
@@ -1220,3 +1328,38 @@ class TransformerBridge(nn.Module):
                     self.reset_hooks()
 
         return _hooks_context()
+
+    def set_use_attn_result(self, use_attn_result: bool):
+        """Toggle whether to explicitly calculate and expose the result for each attention head.
+
+        Useful for interpretability but can easily burn through GPU memory.
+        """
+        self.cfg.use_attn_result = use_attn_result
+
+    def set_use_split_qkv_input(self, use_split_qkv_input: bool):
+        """
+        Toggles whether to allow editing of inputs to each attention head.
+        """
+        self.cfg.use_split_qkv_input = use_split_qkv_input
+
+    def set_use_hook_mlp_in(self, use_hook_mlp_in: bool):
+        """Toggles whether to allow storing and editing inputs to each MLP layer."""
+        import warnings
+
+        warnings.warn(
+            "This function is now deprecated and no longer does anything. These options are turned on by default now.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    def set_use_attn_in(self, use_attn_in: bool):
+        """
+        Toggles whether to allow editing of inputs to each attention head.
+        """
+        import warnings
+
+        warnings.warn(
+            "This function is now deprecated and no longer does anything. These options are turned on by default now.",
+            DeprecationWarning,
+            stacklevel=2,
+        )

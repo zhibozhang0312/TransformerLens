@@ -152,6 +152,9 @@ class TestUtilsWithTransformerBridge:
 
     def test_weight_access_compatibility(self, model):
         """Test that weight access works correctly with TransformerBridge."""
+        # Enable compatibility mode to access property aliases
+        model.enable_compatibility_mode(disable_warnings=True)
+
         # Test basic weight access patterns that should work
         try:
             # These properties should exist on TransformerBridge

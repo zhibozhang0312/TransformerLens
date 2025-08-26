@@ -29,6 +29,10 @@ def mock_transformer_bridge():
     # TransformerBridge doesn't have encoder_output method, so we'll mock the forward call
     mock_bridge.return_value = torch.randn(1, 7, 768)  # Mock forward output
 
+    # Mock encoder_output method for BERT compatibility
+    mock_bridge.encoder_output = Mock()
+    mock_bridge.encoder_output.return_value = torch.randn(1, 7, 768)
+
     # Mock pooler and NSP head - these would need to be added to TransformerBridge for BERT
     mock_bridge.pooler = Mock()
     mock_bridge.pooler.return_value = torch.randn(1, 768)
