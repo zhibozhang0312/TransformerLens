@@ -33,6 +33,7 @@ from transformer_lens.model_bridge.exceptions import StopAtLayerException
 from transformer_lens.model_bridge.generalized_components.base import (
     GeneralizedComponent,
 )
+from transformer_lens.model_bridge.hook_point_wrapper import HookPointWrapper
 from transformer_lens.model_bridge.types import ComponentMapping
 from transformer_lens.utilities.aliases import collect_aliases_recursive
 
@@ -99,6 +100,9 @@ class TransformerBridge(nn.Module):
             for attr_name in dir(module):
                 if attr_name.startswith("_"):
                     continue
+                # Skip original_component to avoid deep traversal
+                if attr_name == "original_component":
+                    continue
                 try:
                     attr = getattr(module, attr_name)
                 except Exception:
@@ -109,6 +113,16 @@ class TransformerBridge(nn.Module):
                     # Set the name on the HookPoint so it can be used in caching
                     attr.name = name
                     hooks[name] = attr
+                elif hasattr(attr, "hook_in") and hasattr(attr, "hook_out"):
+                    # Handle HookPointWrapper objects
+                    if isinstance(attr, HookPointWrapper):
+                        # Add hook_in and hook_out from the wrapper
+                        hook_in_name = f"{name}.hook_in"
+                        hook_out_name = f"{name}.hook_out"
+                        attr.hook_in.name = hook_in_name
+                        attr.hook_out.name = hook_out_name
+                        hooks[hook_in_name] = attr.hook_in
+                        hooks[hook_out_name] = attr.hook_out
                 elif isinstance(attr, nn.Module) and attr is not module:
                     collect_hookpoints(attr, name)
                 elif isinstance(attr, (list, tuple)):
@@ -118,6 +132,9 @@ class TransformerBridge(nn.Module):
 
             # Also traverse named_children() to catch ModuleList and other containers
             for child_name, child_module in module.named_children():
+                # Skip original_component and _original_component to avoid deep traversal
+                if child_name == "original_component" or child_name == "_original_component":
+                    continue
                 child_path = f"{prefix}.{child_name}" if prefix else child_name
                 collect_hookpoints(child_module, child_path)
 
@@ -732,20 +749,28 @@ class TransformerBridge(nn.Module):
                 if attr_name.startswith("_"):
                     continue
                 # Skip the original_model to avoid collecting hooks from HuggingFace model
-                if attr_name == "original_model":
+                if attr_name == "original_model" or attr_name == "original_component":
                     continue
                 try:
                     attr = getattr(module, attr_name)
                 except Exception:
                     continue
 
-                name = f"{prefix}.{attr_name}" if prefix else attr_name
-                if isinstance(attr, HookPoint):
+                def add_hook_to_list(hook: HookPoint, name: str):
                     # Set the name on the HookPoint so it can be used in caching
-                    attr.name = name
+                    hook.name = name
+
                     # Only add hook if it passes the names filter
                     if names_filter_fn(name):
-                        hooks.append((attr, name))
+                        hooks.append((hook, name))
+
+                name = f"{prefix}.{attr_name}" if prefix else attr_name
+                if isinstance(attr, HookPoint):
+                    add_hook_to_list(attr, name)
+                elif isinstance(attr, HookPointWrapper):
+                    # Add hooks for the wrapped hook points (hook_in and hook_out)
+                    add_hook_to_list(attr.hook_in, f"{name}.hook_in")
+                    add_hook_to_list(attr.hook_out, f"{name}.hook_out")
                 elif isinstance(attr, nn.Module):
                     collect_hookpoints(attr, name)
                 elif isinstance(attr, (list, tuple)):
@@ -757,7 +782,7 @@ class TransformerBridge(nn.Module):
             for child_name, child_module in module.named_children():
                 child_path = f"{prefix}.{child_name}" if prefix else child_name
                 # Skip the original_model module
-                if child_name == "original_model":
+                if child_name == "original_model" or child_name == "original_component":
                     continue
                 collect_hookpoints(child_module, child_path)
 
