@@ -119,7 +119,6 @@ def _expected_shape_for_name(
     return None
 
 
-
 @pytest.mark.parametrize("model_name", MODEL_NAMES)
 def test_transformer_bridge_hook_shapes(model_name: str):
     # Ensure boot method is registered
