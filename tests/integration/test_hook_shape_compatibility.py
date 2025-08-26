@@ -119,10 +119,7 @@ def _expected_shape_for_name(
     return None
 
 
-@pytest.mark.skipif(
-    not os.getenv("TL_RUN_HOOK_SHAPE_TESTS"),
-    reason="Set TL_RUN_HOOK_SHAPE_TESTS=1 to enable (requires internet + HF models)",
-)
+
 @pytest.mark.parametrize("model_name", MODEL_NAMES)
 def test_transformer_bridge_hook_shapes(model_name: str):
     # Ensure boot method is registered

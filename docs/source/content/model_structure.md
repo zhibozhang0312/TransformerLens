@@ -61,10 +61,30 @@ Use these canonical (non-aliased) names when adding hooks or reading from the ca
   - *Legacy alias: `blocks.{i}.hook_attn_out`*
 - `blocks.{i}.attn.hook_hidden_states`: primary output for caching (batch, pos, d_model)
   - *Legacy alias: `blocks.{i}.attn.hook_result`*
-- `blocks.{i}.attn.hook_attention_weights` (and `hook_pattern`): (batch, n_heads, pos, pos)
-  - *Legacy alias: `blocks.{i}.attn.hook_pattern`*
+- `blocks.{i}.attn.hook_attn_scores`: raw attention scores before softmax (batch, n_heads, pos, pos)
+- `blocks.{i}.attn.hook_pattern`: attention pattern after softmax and NaN handling (n_heads, pos, pos)
+  - *Legacy alias: `blocks.{i}.attn.hook_attention_weights`*
 - When present, sub-projections: `blocks.{i}.attn.q/k/v/o.hook_in` / `.hook_out` (commonly (batch, pos, d_model))
   - *Legacy aliases: `blocks.{i}.hook_q_input`, `blocks.{i}.hook_k_input`, `blocks.{i}.hook_v_input`, `blocks.{i}.hook_q`, `blocks.{i}.hook_k`, `blocks.{i}.hook_v`*
+
+#### Individual Q/K/V Hooks
+All attention bridges provide access to individual Q, K, V activations through `HookPointWrapper` properties:
+
+- `blocks.{i}.attn.q.hook_in` / `blocks.{i}.attn.q.hook_out`: Q projection hooks (batch, pos, n_heads, d_head)
+- `blocks.{i}.attn.k.hook_in` / `blocks.{i}.attn.k.hook_out`: K projection hooks (batch, pos, n_heads, d_head)
+- `blocks.{i}.attn.v.hook_in` / `blocks.{i}.attn.v.hook_out`: V projection hooks (batch, pos, n_heads, d_head)
+
+#### Joint QKV Attention (GPT-2 style)
+For models using fused QKV projections (like GPT-2), the `JointQKVAttentionBridge` provides additional hooks:
+
+- `blocks.{i}.attn.qkv.hook_in`: input to QKV projection (batch, pos, d_model)
+- `blocks.{i}.attn.qkv.hook_out`: output from QKV projection (batch, pos, 3*d_model)
+- `blocks.{i}.attn.qkv.q_hook_in`: input to Q projection (batch, pos, d_model)
+- `blocks.{i}.attn.qkv.q_hook_out`: output from Q projection (batch, pos, n_heads, d_head)
+- `blocks.{i}.attn.qkv.k_hook_in`: input to K projection (batch, pos, d_model)
+- `blocks.{i}.attn.qkv.k_hook_out`: output from K projection (batch, pos, n_heads, d_head)
+- `blocks.{i}.attn.qkv.v_hook_in`: input to V projection (batch, pos, d_model)
+- `blocks.{i}.attn.qkv.v_hook_out`: output from V projection (batch, pos, n_heads, d_head)
 
 ### MLP
 - `blocks.{i}.mlp.hook_in`: (batch, pos, d_model)
@@ -87,7 +107,9 @@ Use these canonical (non-aliased) names when adding hooks or reading from the ca
 ## Shapes at a Glance
 
 - Residual stream and hidden states: (batch, pos, d_model)
-- Attention patterns: (batch, n_heads, pos, pos)
+- Attention scores: (batch, n_heads, pos, pos)
+- Attention patterns: (n_heads, pos, pos) - after batch dimension removal
+- QKV projections: (batch, pos, n_heads, d_head)
 - MLP pre-activation: (batch, pos, d_mlp)
 - Embeddings: (batch, pos, d_model)
 - Unembedding logits: (batch, pos, d_vocab)
@@ -105,7 +127,13 @@ These shapes are exercised in the multi-model shape test: `tests/integration/tes
 
 ## Fused QKV Attention
 
-Some architectures use a fused QKV projection. The bridge's `JointQKVAttentionBridge` materializes `q`, `k`, and `v` `LinearBridge` views tied to the fused weights. Canonical attention hooks (`attn.hook_in/out`, `attn.hook_attention_weights`, etc.) retain the shapes listed above.
+Some architectures use a fused QKV projection (like GPT-2). The bridge's `JointQKVAttentionBridge` provides access to individual Q, K, V activations through the `QKVBridge` submodule. This allows for:
+
+1. **Individual Q/K/V hooking**: You can hook into `blocks.{i}.attn.qkv.q_hook_out`, `k_hook_out`, or `v_hook_out` to modify individual attention heads
+2. **Attention pattern creation**: The bridge automatically creates attention patterns from the attention scores and applies them through `hook_pattern`
+3. **Compatibility with legacy code**: Legacy hook names like `blocks.{i}.hook_v` are aliased to the appropriate QKV hooks
+
+The canonical attention hooks (`attn.hook_in/out`, `attn.hook_pattern`, etc.) retain the shapes listed above, while the QKV-specific hooks provide access to the individual attention components.
 
 ## Aliases and Backwards Compatibility
 
