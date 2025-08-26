@@ -28,7 +28,9 @@ class TestLegacyHookCompatibility:
     @pytest.fixture
     def transformer_bridge(self, model_name):
         """Create a TransformerBridge for testing."""
-        return TransformerBridge.boot_transformers(model_name, device="cpu")
+        model = TransformerBridge.boot_transformers(model_name, device="cpu")
+        model.enable_compatibility_mode()
+        return model
 
     @pytest.fixture
     def hooked_transformer(self, model_name):
