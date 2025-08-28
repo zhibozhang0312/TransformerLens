@@ -69,10 +69,6 @@ class GeneralizedComponent(nn.Module):
             self.hook_in.hook_conversion = self.conversion_rule
             self.hook_out.hook_conversion = self.conversion_rule
 
-        # Register the standard hooks
-        self._register_hook("hook_in", self.hook_in)
-        self._register_hook("hook_out", self.hook_out)
-
     def _register_hook(self, name: str, hook: HookPoint) -> None:
         """Register a hook in the component's hook registry."""
         # Set the name on the HookPoint

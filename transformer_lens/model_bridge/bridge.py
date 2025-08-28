@@ -164,37 +164,37 @@ class TransformerBridge(nn.Module):
                 except Exception:
                     # If get_hooks() fails, fall through to the else block
                     pass
-            else:
-                # Fall back to scanning attributes for non-GeneralizedComponent modules
-                for attr_name in dir(mod):
-                    if attr_name.startswith("_"):
-                        continue
-                    if attr_name == "original_component":
-                        continue
 
-                    try:
-                        attr = getattr(mod, attr_name)
-                    except Exception:
-                        continue
+            # Always scan attributes for additional hooks and submodules
+            for attr_name in dir(mod):
+                if attr_name.startswith("_"):
+                    continue
+                if attr_name == "original_component":
+                    continue
 
-                    name = f"{path}.{attr_name}" if path else attr_name
+                try:
+                    attr = getattr(mod, attr_name)
+                except Exception:
+                    continue
 
-                    if isinstance(attr, HookPoint):
-                        attr.name = name
-                        self._hook_registry[name] = attr
-                    elif isinstance(attr, HookPointWrapper):
-                        hook_in_name = f"{name}.hook_in"
-                        hook_out_name = f"{name}.hook_out"
-                        attr.hook_in.name = hook_in_name
-                        attr.hook_out.name = hook_out_name
-                        self._hook_registry[hook_in_name] = attr.hook_in
-                        self._hook_registry[hook_out_name] = attr.hook_out
-                    elif isinstance(attr, nn.Module) and attr is not mod:
-                        scan_module(attr, name)
-                    elif isinstance(attr, (list, tuple)):
-                        for i, item in enumerate(attr):
-                            if isinstance(item, nn.Module):
-                                scan_module(item, f"{name}[{i}]")
+                name = f"{path}.{attr_name}" if path else attr_name
+
+                if isinstance(attr, HookPoint):
+                    attr.name = name
+                    self._hook_registry[name] = attr
+                elif isinstance(attr, HookPointWrapper):
+                    hook_in_name = f"{name}.hook_in"
+                    hook_out_name = f"{name}.hook_out"
+                    attr.hook_in.name = hook_in_name
+                    attr.hook_out.name = hook_out_name
+                    self._hook_registry[hook_in_name] = attr.hook_in
+                    self._hook_registry[hook_out_name] = attr.hook_out
+                elif isinstance(attr, nn.Module) and attr is not mod:
+                    scan_module(attr, name)
+                elif isinstance(attr, (list, tuple)):
+                    for i, item in enumerate(attr):
+                        if isinstance(item, nn.Module):
+                            scan_module(item, f"{name}[{i}]")
 
             # Check named children
             for child_name, child_module in mod.named_children():
@@ -202,6 +202,13 @@ class TransformerBridge(nn.Module):
                     continue
                 child_path = f"{path}.{child_name}" if path else child_name
                 scan_module(child_module, child_path)
+
+            # Check submodules property for GeneralizedComponent instances
+            if hasattr(mod, "submodules") and isinstance(mod.submodules, dict):
+                for submodule_name, submodule in mod.submodules.items():
+                    if isinstance(submodule, nn.Module):
+                        submodule_path = f"{path}.{submodule_name}" if path else submodule_name
+                        scan_module(submodule, submodule_path)
 
         scan_module(module, prefix)
 
