@@ -47,6 +47,7 @@ from transformer_lens.pretrained.weight_conversions import (
 )
 
 OFFICIAL_MODEL_NAMES = [
+    "openai/gpt-oss-20b",
     "gpt2",
     "gpt2-medium",
     "gpt2-large",
@@ -268,6 +269,7 @@ OFFICIAL_MODEL_NAMES = [
 
 # Model Aliases:
 MODEL_ALIASES = {
+    "openai/gpt-oss-20b": ["gpt-oss-20b", "gpt-oss"],
     "NeelNanda/SoLU_1L_v9_old": ["solu-1l-pile", "solu-1l-old"],
     "NeelNanda/SoLU_2L_v10_old": ["solu-2l-pile", "solu-2l-old"],
     "NeelNanda/SoLU_4L_v11_old": ["solu-4l-pile", "solu-4l-old"],
@@ -824,6 +826,41 @@ def convert_hf_model_config(model_name: str, **kwargs: Any):
             "final_rms": True,
             "gated_mlp": True,
         }
+        
+    elif official_model_name.startswith(
+        ("gpt-oss-20b", "openai/gpt-oss-20b")
+    ):  # architecture for gpt-oss
+        cfg_dict = {
+            "d_model": 2880,
+            "d_head": 64,
+            "n_heads": 64,
+            "d_mlp": 2880,
+            "n_layers": 24,
+            "n_ctx": 131072,
+            "eps": 1e-5,
+            "d_vocab": 201088,
+            "act_fn": "silu",
+            "n_key_value_heads": 8,
+            "normalization_type": "RMS",
+            "positional_embedding_type": "rotary",
+            "rotary_adjacent_pairs": False,
+            "rotary_dim": 64,
+            "rotary_base": 150000, 
+            "num_experts": 32,  
+            "experts_per_token": 4, 
+
+            
+            "gated_mlp": True,              # SWiGLU
+            "use_local_attn": True,         # sliding window attention
+            "window_size": 128,             # sliding_window
+            "attn_types": [                 # 来自 layer_types（24 层交替）
+                "local","global","local","global","local","global",
+                "local","global","local","global","local","global",
+                "local","global","local","global","local","global",
+                "local","global","local","global","local","global",
+            ],
+        }
+    
     elif official_model_name.startswith("codellama"):  # same architecture CodeLlama and Llama-2
         cfg_dict = {
             "d_model": 4096,
@@ -838,9 +875,9 @@ def convert_hf_model_config(model_name: str, **kwargs: Any):
             "normalization_type": "RMS",
             "positional_embedding_type": "rotary",
             "rotary_dim": 4096 // 32,
-            "final_rms": True,
-            "gated_mlp": True,
-            "rotary_base": 1000000,
+            "n_key_value_heads": 8, 
+            "num_experts": 32, 
+            "experts_per_token": 4, 
         }
         if "python" in official_model_name.lower():
             # The vocab size of python version of CodeLlama-7b is 32000
@@ -1085,6 +1122,7 @@ def convert_hf_model_config(model_name: str, **kwargs: Any):
             "NTK_by_parts_factor": 8.0,
             "NTK_original_ctx_len": 8192,
         }
+    
     elif architecture == "GPTNeoForCausalLM":
         cfg_dict = {
             "d_model": hf_config.hidden_size,
