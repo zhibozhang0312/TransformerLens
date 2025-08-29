@@ -796,6 +796,12 @@ def convert_hf_model_config(model_name: str, **kwargs: Any):
         architecture = "Gemma2ForCausalLM"
     elif "gemma" in official_model_name.lower():
         architecture = "GemmaForCausalLM"
+    # elif architecture in ("GptOssForCausalLM", "GPTOssForCausalLM"):
+    #     from transformer_lens.factories.architecture_adapter_factory import (
+    #         ArchitectureAdapterFactory,
+    #     )
+    #     adapter = ArchitectureAdapterFactory().from_hf_config(hf_config)
+    #     cfg_dict = adapter.make_cfg_dict(hf_config)
     else:
         huggingface_token = os.environ.get("HF_TOKEN", "")
         hf_config = AutoConfig.from_pretrained(
@@ -804,6 +810,7 @@ def convert_hf_model_config(model_name: str, **kwargs: Any):
             **kwargs,
         )
         architecture = hf_config.architectures[0]
+    
 
     cfg_dict: dict[str, Any]
     if official_model_name.startswith(
@@ -2024,10 +2031,31 @@ def get_pretrained_state_dict(
             state_dict = convert_gemma_weights(hf_model, cfg)
         elif cfg.original_architecture == "Gemma2ForCausalLM":
             state_dict = convert_gemma_weights(hf_model, cfg)
-        else:
-            raise ValueError(
-                f"Loading weights from the architecture is not currently supported: {cfg.original_architecture}, generated from model name {cfg.model_name}. Feel free to open an issue on GitHub to request this feature."
+        # ---------- NEW: adapter fallback for new / custom HF architectures ----------
+        elif cfg.original_architecture in ("GptOssForCausalLM", "GPTOssForCausalLM"):
+            # 延迟导入以避免循环依赖
+            from transformer_lens.factories.architecture_adapter_factory import (
+                ArchitectureAdapterFactory,
             )
+            adapter = ArchitectureAdapterFactory().from_hf_config(hf_model.config)
+            state_dict = adapter.to_transformer_lens_state_dict(hf_model, cfg)
+        else:
+            # 兜底：尝试用 adapter 支持更多未来架构
+            try:
+                from transformer_lens.factories.architecture_adapter_factory import (
+                    ArchitectureAdapterFactory,
+                )
+                adapter = ArchitectureAdapterFactory().from_hf_config(hf_model.config)
+                state_dict = adapter.to_transformer_lens_state_dict(hf_model, cfg)
+            except Exception:
+                raise ValueError(
+                    f"Loading weights from the architecture is not currently supported: {cfg.original_architecture}, generated from model name {cfg.model_name}. Feel free to open an issue on GitHub to request this feature."
+                )
+        
+        # else:
+        #     raise ValueError(
+        #         f"Loading weights from the architecture is not currently supported: {cfg.original_architecture}, generated from model name {cfg.model_name}. Feel free to open an issue on GitHub to request this feature."
+        #     )
 
         return state_dict
 
